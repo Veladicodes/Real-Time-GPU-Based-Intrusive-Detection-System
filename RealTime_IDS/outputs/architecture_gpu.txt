@@ -1,0 +1,26 @@
+TITLE: GPU-Accelerated Real-Time Intrusion Detection and Adaptive Defense System (RT-GIDS)
+
+SYSTEM FLOW:
+──────────────────────────────
+Network Traffic → PyShark Packet Sniffer → GPU-Optimized XGBoost Classifier →
+┌─────────────┬──────────────┐
+│ Normal Flow │ Attack Flow  │
+└─────────────┴──────────────┘
+Attack Flow → Auto-Firewall Defense (iptables) → Streamlit Live Dashboard Visualization
+
+FEATURES USED:
+• packet_length
+• protocol
+• src_port
+• dst_port
+• ip_version
+
+EVALUATION METRICS:
+• Accuracy
+• Precision / Recall / F1-score
+• Detection Latency (ms)
+
+DEPLOYMENT TARGET:
+• Real-time Monitoring on Wi-Fi / LAN
+• GPU-accelerated detection for high throughput networks
+

@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: cn-backend
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - RTGIDS_MODELS_DIR=/data/models
+      - RTGIDS_API_TOKEN=dev-token-abc
+      - RTGIDS_JWT_SECRET=supersecret
+    volumes:
+      - ./backend:/app                      # backend source code
+      - D:/CN/RealTime_IDS/models:/data/models  # ✅ mount your actual model folder
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  redis:
+    image: redis:7-alpine
+    container_name: cn-redis
+    ports:
+      - "6379:6379"

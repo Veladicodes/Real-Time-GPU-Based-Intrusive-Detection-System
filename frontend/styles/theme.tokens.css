@@ -1,0 +1,76 @@
+:root {
+  --font-title: "Orbitron", sans-serif;
+  --font-display: var(--font-title);
+  --font-mono: "JetBrains Mono", monospace;
+  --font-ui: var(--font-mono);
+  --font-size-xl: 1.9rem;
+  --font-size-lg: 1.6rem;
+  --font-size-md: 1.2rem;
+  --font-size-sm: 0.9rem;
+  --font-size-xs: 0.75rem;
+
+  --accent-orange: #f35b04;
+  --accent-orange-rgb: 243 91 4;
+  --accent-cyan: #00fff7;
+  --accent-cyan-rgb: 0 255 247;
+  --accent-gray: #a8a8a8;
+  --accent-gray-rgb: 168 168 168;
+  --accent-red: #ff3b3b;
+  --accent-red-rgb: 255 59 59;
+  --accent-yellow: #ffcc33;
+  --accent-yellow-rgb: 255 204 51;
+  --accent-green: #00ff7f;
+  --accent-green-rgb: 0 255 127;
+
+  --base-bg: #0a0a0a;
+  --bg: var(--base-bg);
+  --bg-rgb: 10 10 10;
+
+  --surface: rgb(18 18 18 / 65%);
+  --surface-rgb: 18 18 18;
+  --surface-solid: #131313;
+  --surface-solid-rgb: 19 19 19;
+  --surface-depth: rgb(0 0 0 / 70%);
+  --panel: var(--surface-solid);
+  --panel-rgb: var(--surface-solid-rgb);
+  --surface-glass: var(--surface);
+  --surface-glow: rgb(var(--brand-rgb) / 14%);
+
+  --text-primary: #eaeaea;
+  --text-primary-rgb: 234 234 234;
+  --text-secondary: #b3b3b3;
+  --text-secondary-rgb: 179 179 179;
+  --text-dim: var(--accent-gray);
+  --text-dim-rgb: 168 168 168;
+  --text-bright: var(--text-primary);
+  --text-bright-rgb: var(--text-primary-rgb);
+  --text-warn: var(--accent-yellow);
+  --text-alert: var(--accent-red);
+  --muted: var(--text-dim);
+  --muted-rgb: var(--text-dim-rgb);
+
+  --bg-surface: #0a0a0a;
+
+  --brand: var(--accent-orange);
+  --brand-rgb: var(--accent-orange-rgb);
+  --brand-soft: rgb(243 91 4 / 12%);
+  --accent: var(--brand);
+  --accent-dim: rgb(243 91 4 / 25%);
+
+  --accent-focus: #f35b04;
+
+  --border: rgb(243 91 4 / 12%);
+  --glow: rgb(243 91 4 / 25%);
+  --glow-soft: rgb(0 255 247 / 18%);
+  --glass: rgb(255 255 255 / 3%);
+
+  --motion-fast: 150ms cubic-bezier(0.45, 0, 0.25, 1);
+  --motion-medium: 280ms cubic-bezier(0.45, 0, 0.25, 1);
+  --motion-slow: 600ms cubic-bezier(0.45, 0, 0.25, 1);
+
+  --radius: 14px;
+  --blur-weak: 4px;
+  --blur-strong: 8px;
+  --mono-font: var(--font-mono);
+  --ui-font: var(--font-mono);
+}
