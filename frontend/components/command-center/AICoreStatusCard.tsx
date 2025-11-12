@@ -8,7 +8,6 @@ import useSWR from "swr"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 
 type ModelStatusResponse = {
@@ -21,15 +20,6 @@ type ModelStatusResponse = {
 }
 
 const fetcher = (url: string) => api.get(url).then((res) => res.data as ModelStatusResponse)
-
-const fallbackStatus: ModelStatusResponse = {
-  model: "RTGIDS-Net-v1 (sim)",
-  gpu_mode: true,
-  features: 128,
-  precision: 0.87,
-  recall: 0.83,
-  load: 100,
-}
 
 function buildProgressStyle(percent: number) {
   return {
@@ -51,12 +41,11 @@ export default function AICoreStatusCard() {
       offlineRef.current = false
       return data
     }
-    if (error) {
+    if (error && !offlineRef.current) {
       if (!offlineRef.current) {
-        console.warn("⚠️ Backend offline, using simulated data.")
-        offlineRef.current = true
+        console.warn("⚠️ Model status unavailable.")
       }
-      return fallbackStatus
+      offlineRef.current = true
     }
     return data ?? null
   }, [data, error])
@@ -89,9 +78,9 @@ export default function AICoreStatusCard() {
       <CardContent className="flex flex-col gap-6 py-6">
         {isLoading && !status ? (
           <div className="space-y-4">
-            <Skeleton className="h-28 w-28 rounded-full bg-[rgba(255,74,0,0.08)]" />
-            <Skeleton className="h-5 w-48 rounded bg-[rgba(255,74,0,0.08)]" />
-            <Skeleton className="h-5 w-56 rounded bg-[rgba(255,74,0,0.08)]" />
+            <div className="h-28 w-28 animate-pulse rounded-full bg-[rgba(255,74,0,0.08)]" />
+            <div className="h-5 w-48 animate-pulse rounded bg-[rgba(255,74,0,0.08)]" />
+            <div className="h-5 w-56 animate-pulse rounded bg-[rgba(255,74,0,0.08)]" />
           </div>
         ) : status ? (
           <>

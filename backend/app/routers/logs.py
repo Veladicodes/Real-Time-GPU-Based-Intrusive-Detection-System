@@ -16,6 +16,7 @@ from fastapi import (
 )
 
 from app.security import decode_token
+from app.utils.diagnostics_utils import fetch_maintenance
 from app.services.telemetry_service import TelemetryService
 
 router = APIRouter(prefix="/api/logs", tags=["Logs"])
@@ -55,6 +56,15 @@ async def ingest_log(
     telemetry = getattr(request.app.state, "telemetry_service", None) or getattr(request.app.state, "telemetry", None)
     if telemetry is None or not isinstance(telemetry, TelemetryService):
         raise HTTPException(status_code=503, detail="Telemetry service unavailable")
+
+    maintenance = getattr(request.app.state, "maintenance_mode", None)
+    if maintenance is None:
+        redis = getattr(request.app.state, "redis", None)
+        if redis is not None:
+            maintenance = await fetch_maintenance(redis)
+            setattr(request.app.state, "maintenance_mode", maintenance)
+    if maintenance:
+        raise HTTPException(status_code=503, detail="Maintenance Mode Active")
 
     message_text = str(payload.get("message") or "").strip()
     if message_text.lower().startswith("rt-gids auto-pulse"):

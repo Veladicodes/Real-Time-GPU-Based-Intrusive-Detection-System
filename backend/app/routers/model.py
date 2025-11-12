@@ -3,6 +3,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from typing import Any, Dict
+import torch
 
 from app.security import verify_jwt_token
 from app.services.ml_service import MLService
@@ -53,7 +54,6 @@ async def model_importance(request: Request) -> Dict[str, Any]:
             raise ValueError("No feature importance data available")
         return {"status": "ok", "importance": data}
     except Exception as exc:
-        # Return graceful fallback rather than 500
         return {"status": "unavailable", "reason": str(exc)}
 
 
@@ -90,16 +90,26 @@ async def model_summary(request: Request) -> Dict[str, Any]:
         return {"status": "unavailable", "reason": str(exc)}
 
 
+# -----------------------------------------------------------------------------
+# Enhanced dashboard endpoint (FIXED)
+# -----------------------------------------------------------------------------
 @router.get("/model/summary", summary="Return dashboard-friendly model metadata")
 async def model_summary_dashboard(request: Request) -> Dict[str, Any]:
-    """Expose lightweight model summary for the Model Insights UI."""
+    """Expose lightweight model summary for the Model Insights and AI Core dashboard."""
+
+    # --- Safe defaults ---
     fallback = {
         "model_name": "Model unavailable",
         "features": [],
         "patterns_detected": 0,
         "incidents_logged": 0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "gpu_mode": "ON" if torch.cuda.is_available() else "OFF",
     }
 
+    # --- Gather info from services (with isolation) ---
     try:
         info = _get_model_service(request).info()
     except Exception:
@@ -110,17 +120,23 @@ async def model_summary_dashboard(request: Request) -> Dict[str, Any]:
     except Exception:
         summary = {}
 
+    # --- Determine feature set ---
     features = []
     if isinstance(summary.get("feature_importance"), list):
         features = summary["feature_importance"]
-    elif isinstance(info.get("features"), list):
-        features = [{"name": name, "importance": 100 / len(info["features"])} for name in info["features"]] if info["features"] else []
+    elif isinstance(info.get("features"), list) and info["features"]:
+        features = [{"name": f, "importance": round(100 / len(info["features"]), 2)} for f in info["features"]]
 
+    # --- Merge outputs with fallbacks ---
     return {
         "model_name": info.get("model_path") or summary.get("model") or fallback["model_name"],
         "features": features or fallback["features"],
         "patterns_detected": summary.get("patterns_detected", fallback["patterns_detected"]),
         "incidents_logged": summary.get("incidents_logged", fallback["incidents_logged"]),
+        "precision": summary.get("precision", fallback["precision"]),
+        "recall": summary.get("recall", fallback["recall"]),
+        "f1_score": summary.get("f1_score", fallback["f1_score"]),
+        "gpu_mode": fallback["gpu_mode"],
     }
 
 

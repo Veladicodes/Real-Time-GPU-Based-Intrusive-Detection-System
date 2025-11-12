@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, MutableMapping
 
@@ -20,7 +20,6 @@ DEFAULT_LOG_KEY = "logs"
 @dataclass(slots=True)
 class TimelinePoint:
     """Minute-level aggregation suitable for sparkline visualisations."""
-
     minute: str
     count: int
 
@@ -28,7 +27,6 @@ class TimelinePoint:
 @dataclass(slots=True)
 class SummarySnapshot:
     """Structured summary of recent attack telemetry."""
-
     attack_rate: float
     top_ips: Dict[str, int]
     top_ports: Dict[str, int]
@@ -37,12 +35,14 @@ class SummarySnapshot:
     total_events: int
 
     def as_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dictionary representation."""
         return {
             "attack_rate": self.attack_rate,
             "top_ips": self.top_ips,
             "top_ports": self.top_ports,
             "protocols": self.protocols,
-            "timeline": [point.__dict__ for point in self.timeline],
+            # ✅ FIX: Support dataclass(slots=True) serialization
+            "timeline": [asdict(point) for point in self.timeline],
             "total_events": self.total_events,
         }
 
@@ -92,7 +92,6 @@ class SummaryService:
             ts = self._coerce_timestamp(entry)
             if ts < cutoff:
                 # Redis returns newest to oldest when using lrange 0..n after LPUSH.
-                # Because of that ordering we can break once we pass the cutoff.
                 continue
             entry["_timestamp"] = ts
             events.append(entry)
@@ -161,9 +160,8 @@ class SummaryService:
             if candidate is None:
                 continue
             if isinstance(candidate, (int, float)):
-                # Handle both seconds and milliseconds.
                 value = float(candidate)
-                if value > 1_000_000_000_000:  # very large -> milliseconds
+                if value > 1_000_000_000_000:
                     value /= 1_000
                 return datetime.fromtimestamp(value, tz=timezone.utc)
             if isinstance(candidate, str):
@@ -255,5 +253,3 @@ class SummaryService:
             label = (now - timedelta(minutes=offset)).strftime("%H:%M")
             timeline.append(TimelinePoint(minute=label, count=int(buckets.get(label, 0))))
         return timeline
-
-

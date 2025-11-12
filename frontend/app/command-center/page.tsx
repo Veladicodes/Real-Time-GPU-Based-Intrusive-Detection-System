@@ -7,6 +7,7 @@ import { motion } from "framer-motion"
 
 import AttackFrequencyChart from "@/components/command-center/AttackFrequencyChart"
 import AICoreStatusCard from "@/components/command-center/AICoreStatusCard"
+import CommandSummaryBar from "@/components/command-center/CommandSummaryBar"
 import IncidentOverview from "@/components/command-center/IncidentOverview"
 import TopAttackersList from "@/components/command-center/TopAttackersList"
 import { AIDiagnosticsModal } from "@/components/rt-gids/ai-diagnostics-modal"
@@ -22,6 +23,7 @@ import { useSystemHealth } from "@/hooks/useSystemHealth"
 import { useWebSocketLogs } from "@/hooks/useWebSocketLogs"
 import { usePerfControl } from "@/hooks/usePerfControl"
 import { useUIAudio } from "@/hooks/useUIAudio"
+import { useSystemContext } from "@/context/SystemContext"
 
 const LiveLog = dynamic(() => import("@/components/LiveLog"), { ssr: false })
 
@@ -33,6 +35,7 @@ export default function CommandCenterPage() {
   const { alertMessages, messages, connected, connectionState, paused, setPaused, clear } = useWebSocketLogs()
   const { muted, toggleMute, play } = useUIAudio()
   const { showFps } = usePerfControl()
+  const { totalPackets, attacksBlocked, ipsBlocked, uptimeLabel } = useSystemContext()
 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [alertPulse, setAlertPulse] = useState(false)
@@ -88,19 +91,7 @@ export default function CommandCenterPage() {
         </div>
       </motion.div>
 
-      <motion.section
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="grid grid-cols-1 gap-6 lg:grid-cols-12"
-      >
-        <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-7">
-          <AttackFrequencyChart />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-5">
-          <TopAttackersList />
-        </motion.div>
-      </motion.section>
+      <CommandSummaryBar />
 
       <motion.section
         initial={{ opacity: 0, y: 12 }}
@@ -108,15 +99,6 @@ export default function CommandCenterPage() {
         transition={{ duration: 0.4, ease: "easeOut" }}
         className="grid grid-cols-1 gap-6 lg:grid-cols-12"
       >
-        <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-6">
-          <AICoreStatusCard />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-6">
-          <IncidentOverview />
-        </motion.div>
-      </motion.section>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <motion.div initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-8">
           <LiveLog
             logs={messages}
@@ -140,7 +122,35 @@ export default function CommandCenterPage() {
           </Card>
           <SystemStatus health={systemHealth} connectionState={connectionState} isLoading={healthLoading} />
         </motion.div>
-      </div>
+      </motion.section>
+
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="grid grid-cols-1 gap-6 lg:grid-cols-12"
+      >
+        <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-6">
+          <AICoreStatusCard />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-6">
+          <IncidentOverview />
+        </motion.div>
+      </motion.section>
+
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="grid grid-cols-1 gap-6 lg:grid-cols-12"
+      >
+        <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-7">
+          <AttackFrequencyChart />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} className="lg:col-span-5">
+          <TopAttackersList />
+        </motion.div>
+      </motion.section>
 
       <CommandConsole onSubmit={() => play("info")}
       />

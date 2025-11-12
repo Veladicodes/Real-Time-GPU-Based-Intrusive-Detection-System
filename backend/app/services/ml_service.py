@@ -17,14 +17,14 @@ from app.observability import ML_LATENCY, ML_QUEUE
 
 log = logging.getLogger("rtgids.ml")
 
-try:  # Optional GPU / ONNX support
+try:
     import torch
-except Exception:  # pragma: no cover - optional dependency
+except Exception:
     torch = None
 
-try:  # Optional ONNX runtime
+try:
     import onnxruntime as ort
-except Exception:  # pragma: no cover - optional dependency
+except Exception:
     ort = None
 
 
@@ -35,6 +35,8 @@ SUPPORTED_EXTENSIONS = (".pt", ".pth", ".onnx", ".joblib")
 
 
 class MLService:
+    """Unified async ML inference and batching service."""
+
     def __init__(self, model_dir: str = MODELS_DIR) -> None:
         self.model_dir = model_dir
         self.model_path = os.path.join(model_dir, "model.joblib")
@@ -43,7 +45,11 @@ class MLService:
         self._queue: "asyncio.Queue[tuple[Dict[str, float], asyncio.Future]]" = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._executor = ThreadPoolExecutor(max_workers=4)
+        self.worker_running = False  # ✅ Added for compatibility with main.py
 
+    # ------------------------------------------------------------
+    # Model loading
+    # ------------------------------------------------------------
     def _resolve_model_path(self) -> str:
         for filename in os.listdir(self.model_dir):
             if any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
@@ -73,26 +79,42 @@ class MLService:
                 self.model, self.model_type = mdl, "joblib"
             self.model_path = path
             log.info("✅ Loaded model (%s): %s", self.model_type, path)
-        except Exception as exc:  # pragma: no cover - depends on external artefacts
+        except Exception as exc:
             log.exception("Model load failed: %s", exc)
             self.model, self.model_type = None, "heuristic"
 
+    # ------------------------------------------------------------
+    # Worker management
+    # ------------------------------------------------------------
     def start_worker(self) -> None:
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._batch_worker())
+        """Launch background batch inference loop if not running."""
+        if self.worker_running:
+            return
+        self.worker_running = True
+        self._task = asyncio.create_task(self._batch_worker(), name="ml-batch-worker")
+        log.info("🚀 ML background worker started")
 
     async def stop_worker(self) -> None:
+        """Stop background inference worker gracefully."""
+        if not self.worker_running:
+            return
+        self.worker_running = False
         if self._task:
             self._task.cancel()
             try:
                 await self._task
-            except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
+            except asyncio.CancelledError:
                 pass
             self._task = None
         ML_QUEUE.set(self._queue.qsize())
+        log.info("🛑 ML background worker stopped")
 
+    # ------------------------------------------------------------
+    # Prediction pipeline
+    # ------------------------------------------------------------
     async def predict_async(self, features: Dict[str, float]) -> Dict[str, Any]:
-        if self._task is None or self._task.done():
+        """Async prediction with auto-batched processing."""
+        if not self.worker_running:
             self.start_worker()
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         await self._queue.put((features, future))
@@ -100,8 +122,9 @@ class MLService:
         return await future
 
     async def _batch_worker(self) -> None:
+        """Assemble batches and perform inference asynchronously."""
         try:
-            while True:
+            while self.worker_running:
                 features, future = await self._queue.get()
                 batch = [(features, future)]
                 start = time.perf_counter()
@@ -121,13 +144,12 @@ class MLService:
                     [float(payload.get(name, 0.0)) for name in feature_names]
                     for payload, _ in batch
                 ]
-
                 ML_QUEUE.set(self._queue.qsize())
 
                 try:
                     with ML_LATENCY.time():
                         results = await self._run_inference(vectors)
-                except Exception as exc:  # pragma: no cover - inference failure path
+                except Exception as exc:
                     log.exception("Batch inference error: %s", exc)
                     results = [{"score": 0.0, "label": "error", "error": str(exc)} for _ in batch]
 
@@ -137,11 +159,15 @@ class MLService:
                         fut.set_result(result)
                 for _ in batch:
                     self._queue.task_done()
-        except asyncio.CancelledError:  # pragma: no cover - worker shutdown
+        except asyncio.CancelledError:
             pass
         finally:
             ML_QUEUE.set(self._queue.qsize())
+            self.worker_running = False
 
+    # ------------------------------------------------------------
+    # Inference engine
+    # ------------------------------------------------------------
     async def _run_inference(self, inputs: List[List[float]]) -> List[Dict[str, Any]]:
         if self.model_type == "heuristic" or self.model is None:
             outputs: List[Dict[str, Any]] = []
@@ -181,6 +207,9 @@ class MLService:
 
         raise RuntimeError("Unsupported model backend or missing dependency")
 
+    # ------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------
     @staticmethod
     def _scores_from_array(array: Any) -> List[Dict[str, Any]]:
         arr = np.asarray(array)
@@ -191,10 +220,7 @@ class MLService:
 
         results: List[Dict[str, Any]] = []
         for row in arr:
-            if row.size >= 2:
-                score = float(row[1])
-            else:
-                score = float(row[0])
+            score = float(row[1] if row.size >= 2 else row[0])
             results.append({"score": score, "label": "ANOMALY" if score >= 0.5 else "NORMAL"})
         return results
 
@@ -204,5 +230,5 @@ class MLService:
             "path": self.model_path,
             "status": "ok" if self.model or self.model_type != "heuristic" else "degraded",
             "queue": self._queue.qsize(),
+            "worker_running": self.worker_running,
         }
-

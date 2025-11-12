@@ -1,21 +1,22 @@
-version: "3.9"
-
 services:
-  backend:
-    build: ./backend
-    container_name: cn-backend
+  rtgids-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rtgids-backend-gpu
+    restart: always
+    ports:
+      - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://rtgids-redis:6379/0
       - RTGIDS_MODELS_DIR=/data/models
       - RTGIDS_API_TOKEN=dev-token-abc
       - RTGIDS_JWT_SECRET=supersecret
     volumes:
-      - ./backend:/app                      # backend source code
-      - D:/CN/RealTime_IDS/models:/data/models  # ✅ mount your actual model folder
-    ports:
-      - "8000:8000"
+      - ./backend:/app
+      - ./RealTime_IDS/models:/data/models
     depends_on:
-      - redis
+      - rtgids-redis
     deploy:
       resources:
         reservations:
@@ -24,8 +25,11 @@ services:
               count: 1
               capabilities: [gpu]
 
-  redis:
-    image: redis:7-alpine
-    container_name: cn-redis
+  rtgids-redis:
+    image: redis:7
+    container_name: rtgids-redis
+    restart: always
     ports:
       - "6379:6379"
+    volumes:
+      - ./redis-data/redis:/data

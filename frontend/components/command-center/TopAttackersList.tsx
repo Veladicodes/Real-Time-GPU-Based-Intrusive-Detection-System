@@ -8,7 +8,6 @@ import { Globe2, ShieldOff } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 
 type Attacker = {
@@ -18,17 +17,6 @@ type Attacker = {
 }
 
 const fetcher = (url: string) => api.get(url).then((res) => res.data as Attacker[])
-
-const simulatedAttackers: Attacker[] = [
-  { ip: "192.168.10.45", count: 54, geo: "India" },
-  { ip: "203.0.113.12", count: 32, geo: "Russia" },
-  { ip: "198.51.100.87", count: 25, geo: "Brazil" },
-  { ip: "54.231.99.10", count: 21, geo: "United States" },
-  { ip: "45.67.23.5", count: 17, geo: "Germany" },
-]
-
-const sortAttackers = (attackers: Attacker[]) =>
-  [...attackers].sort((a, b) => Number(b.count ?? 0) - Number(a.count ?? 0))
 
 export default function TopAttackersList() {
   const [blocking, setBlocking] = useState<string | null>(null)
@@ -46,17 +34,14 @@ export default function TopAttackersList() {
   const attackers = useMemo(() => {
     if (data && data.length) {
       offlineRef.current = false
-      return sortAttackers(data)
+      return [...data].sort((a, b) => Number(b.count ?? 0) - Number(a.count ?? 0))
     }
-    if (error || isLoading === false) {
-      if (!offlineRef.current) {
-        console.warn("⚠️ Backend offline, using simulated data.")
-        offlineRef.current = true
-      }
-      return simulatedAttackers
+    if (error && !offlineRef.current) {
+      console.warn("⚠️ Top attacker data unavailable.")
+      offlineRef.current = true
     }
     return []
-  }, [data, error, isLoading])
+  }, [data, error])
 
   const handleBlock = async (ip: string) => {
     setBlocking(ip)
@@ -84,10 +69,10 @@ export default function TopAttackersList() {
         {isLoading && !attackers.length ? (
           <div className="space-y-2">
             {Array.from({ length: 5 }).map((_, idx) => (
-              <Skeleton key={idx} className="h-12 rounded bg-[rgba(255,74,0,0.08)]" />
+              <div key={idx} className="h-12 animate-pulse rounded bg-[rgba(255,74,0,0.08)]" />
             ))}
           </div>
-        ) : (
+        ) : attackers.length ? (
           <div className="space-y-2">
             {attackers.map((attacker, index) => (
               <motion.div
@@ -122,6 +107,10 @@ export default function TopAttackersList() {
                 </div>
               </motion.div>
             ))}
+          </div>
+        ) : (
+          <div className="flex h-24 items-center justify-center rounded border border-dashed border-muted/40 text-sm text-muted">
+            No attacker telemetry yet
           </div>
         )}
       </CardContent>

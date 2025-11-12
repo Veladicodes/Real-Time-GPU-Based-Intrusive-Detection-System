@@ -233,7 +233,7 @@ export function LiveLog({
 
       <div ref={viewportRef} className="live-log__viewport" data-virtualized={shouldVirtualize}>
         {items.length === 0 ? (
-          <div className="live-log__empty">Awaiting telemetry…</div>
+          <div className="live-log__empty">System boot</div>
         ) : shouldVirtualize ? (
           <div style={{ height: totalHeight, position: "relative" }}>
             {virtualItems.map((virtualRow) => {

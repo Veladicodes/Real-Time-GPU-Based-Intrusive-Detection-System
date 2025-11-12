@@ -9,20 +9,31 @@ export interface SystemHealthResponse {
   service?: string
 }
 
+const mapStatus = (input: string | undefined) => {
+  if (!input) return "unknown"
+  const value = input.toLowerCase()
+  if (value.includes("ok") || value.includes("online")) return "online"
+  if (value.includes("warn") || value.includes("degrad")) return "degraded"
+  if (value.includes("off")) return "offline"
+  return value
+}
+
 export function useSystemHealth(pollIntervalMs = 5_000) {
   const { data, loading, error, lastUpdated, refresh } = useApi<SystemHealthResponse>("/api/health", {
     pollInterval: pollIntervalMs,
     initialData: { status: "unknown" },
   })
 
-  const status = data?.status ?? "unknown"
+  const status = mapStatus(data?.status)
 
   const normalized = useMemo(
     () => ({
-      ...(data ?? { status: "unknown" }),
       status,
+      latency_ms: data?.latency_ms ?? null,
+      backend_time: data?.backend_time ?? null,
+      service: data?.service ?? null,
     }),
-    [data, status],
+    [data?.backend_time, data?.latency_ms, data?.service, status],
   )
 
   return {

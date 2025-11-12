@@ -10,7 +10,6 @@ import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 
 type IncidentMetrics = {
@@ -20,12 +19,6 @@ type IncidentMetrics = {
 }
 
 const fetcher = (url: string) => api.get(url).then((res) => res.data as IncidentMetrics)
-
-const fallbackMetrics: IncidentMetrics = {
-  incidents_logged: 14,
-  patterns_detected: 40,
-  false_positives: 2,
-}
 
 const metricConfig: Array<{ key: keyof IncidentMetrics; label: string }> = [
   { key: "incidents_logged", label: "Incidents Logged" },
@@ -45,12 +38,9 @@ export default function IncidentOverview() {
       offlineRef.current = false
       return data
     }
-    if (error) {
-      if (!offlineRef.current) {
-        console.warn("⚠️ Backend offline, using simulated data.")
-        offlineRef.current = true
-      }
-      return fallbackMetrics
+    if (error && !offlineRef.current) {
+      console.warn("⚠️ Incident overview data unavailable.")
+      offlineRef.current = true
     }
     return data ?? null
   }, [data, error])
@@ -64,7 +54,7 @@ export default function IncidentOverview() {
       <CardContent className="grid grid-cols-1 gap-4 py-6 sm:grid-cols-3">
         {isLoading && !metrics ? (
           Array.from({ length: 3 }).map((_, idx) => (
-            <Skeleton key={idx} className="h-24 rounded bg-[rgba(255,74,0,0.08)]" />
+            <div key={idx} className="h-24 animate-pulse rounded bg-[rgba(255,74,0,0.08)]" />
           ))
         ) : metrics ? (
           metricConfig.map(({ key, label }) => (

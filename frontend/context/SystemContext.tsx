@@ -6,6 +6,11 @@ import { useMetricsStream } from "@/hooks/useMetricsStream"
 import { useSystemHealth } from "@/hooks/useSystemHealth"
 import { useWebSocketLogs } from "@/hooks/useWebSocketLogs"
 import { useUIAudio } from "@/hooks/useUIAudio"
+import { useTotalPackets } from "@/hooks/useTotalPackets"
+import { useAttacksBlocked } from "@/hooks/useAttacksBlocked"
+import { useIPsBlocked } from "@/hooks/useIPsBlocked"
+import { useSystemMetrics } from "@/hooks/useSystemDiagnostics"
+import { useUptime } from "@/hooks/useUptime"
 
 export interface SystemContextValue {
   threatLevel: number
@@ -22,6 +27,11 @@ export interface SystemContextValue {
   socketConnected: boolean
   muted: boolean
   toggleMute: () => void
+  totalPackets: number
+  attacksBlocked: number
+  ipsBlocked: number
+  systemMetrics: ReturnType<typeof useSystemMetrics>
+  uptimeLabel: string
 }
 
 const SystemContext = createContext<SystemContextValue | undefined>(undefined)
@@ -31,6 +41,11 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
   const { data: healthData, status: healthStatus, lastUpdated: healthLastUpdated } = useSystemHealth()
   const { messages, connected: socketConnected } = useWebSocketLogs({ muteAudio: true })
   const { muted, toggleMute } = useUIAudio()
+  const totalPackets = useTotalPackets()
+  const attacksBlocked = useAttacksBlocked()
+  const ipsBlocked = useIPsBlocked()
+  const systemMetrics = useSystemMetrics()
+  const uptimeLabel = useUptime()
 
   const value = useMemo<SystemContextValue>(
     () => ({
@@ -48,6 +63,11 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
       socketConnected,
       muted,
       toggleMute,
+      totalPackets,
+      attacksBlocked,
+      ipsBlocked,
+      systemMetrics,
+      uptimeLabel,
     }),
     [
       healthData?.backend_time,
@@ -62,6 +82,11 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
       threatLevel,
       threatStatus,
       toggleMute,
+      totalPackets,
+      attacksBlocked,
+      ipsBlocked,
+      systemMetrics,
+      uptimeLabel,
     ],
   )
 

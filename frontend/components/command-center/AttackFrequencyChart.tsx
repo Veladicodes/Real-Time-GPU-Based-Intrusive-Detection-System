@@ -17,7 +17,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 
 type AttackPoint = {
@@ -71,8 +70,6 @@ function normalisePoints(points: AttackPoint[]): AttackPoint[] {
 export default function AttackFrequencyChart() {
   const [windowKey, setWindowKey] = useState<TimeWindow>("5M")
   const [points, setPoints] = useState<AttackPoint[]>([])
-  const [simulating, setSimulating] = useState(false)
-  const simulationWarnedRef = useRef(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const { data, error, isLoading } = useSWR<AttackPoint[]>(
@@ -85,29 +82,17 @@ export default function AttackFrequencyChart() {
   )
 
   useEffect(() => {
-    if (data && data.length) {
+    if (data) {
       setPoints(normalisePoints(data))
-      setSimulating(false)
-    } else if (!isLoading && !points.length) {
-      setSimulating(true)
     }
-  }, [data, isLoading, points.length])
-
-  useEffect(() => {
-    if (!error) return
-    if (!simulationWarnedRef.current) {
-      console.warn("⚠️ Backend offline, using simulated data.")
-      simulationWarnedRef.current = true
-    }
-    setSimulating(true)
-  }, [error])
+  }, [data])
 
   useEffect(() => {
     const url = buildTelemetryWsUrl()
     try {
       wsRef.current = new WebSocket(url)
     } catch {
-      setSimulating(true)
+      console.warn("⚠️ Unable to open telemetry WebSocket.")
       return
     }
     const socket = wsRef.current
@@ -131,11 +116,7 @@ export default function AttackFrequencyChart() {
     })
 
     socket.addEventListener("error", () => {
-      if (!simulationWarnedRef.current) {
-        console.warn("⚠️ Backend offline, using simulated data.")
-        simulationWarnedRef.current = true
-      }
-      setSimulating(true)
+      console.warn("⚠️ Telemetry WebSocket error.")
     })
 
     return () => {
@@ -143,23 +124,6 @@ export default function AttackFrequencyChart() {
       wsRef.current = null
     }
   }, [])
-
-  useEffect(() => {
-    if (!simulating) return
-    const interval = window.setInterval(() => {
-      setPoints((prev) => {
-        const next = [
-          ...prev,
-          {
-            timestamp: new Date().toISOString(),
-            count: Math.floor(Math.random() * 100),
-          },
-        ]
-        return normalisePoints(next).slice(-720)
-      })
-    }, 4_000)
-    return () => window.clearInterval(interval)
-  }, [simulating])
 
   const filteredPoints = useMemo(() => {
     const duration = WINDOW_CONFIG[windowKey].durationMs
@@ -185,13 +149,15 @@ export default function AttackFrequencyChart() {
       ? totalEvents / Math.max(filteredPoints.length, WINDOW_CONFIG[windowKey].durationMs / 60_000)
       : 0
 
+  const statusLabel = error ? "Offline" : "Live"
+
   return (
     <Card className="border border-[rgba(255,74,0,0.25)] bg-[rgb(12,12,12)]/90 shadow-[0_0_20px_rgba(255,74,0,0.15)]">
       <CardHeader className="flex flex-col gap-4 border-b border-[rgba(255,74,0,0.18)] pb-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <CardTitle className="text-sm font-mono uppercase tracking-[0.4em] text-brand">Attack Frequency</CardTitle>
           <Badge variant="outline" className="border-brand/60 bg-brand/10 text-[10px] font-mono uppercase tracking-[0.4em] text-brand">
-            {simulating ? "Simulated" : "Live"}
+            {statusLabel}
           </Badge>
         </div>
         <div className="flex gap-2">
@@ -214,8 +180,8 @@ export default function AttackFrequencyChart() {
       </CardHeader>
       <CardContent className="h-64">
         {isLoading && !points.length ? (
-          <Skeleton className="h-full w-full rounded-lg bg-[rgba(255,74,0,0.08)]" />
-        ) : (
+          <div className="h-full w-full animate-pulse rounded-lg bg-[rgba(255,74,0,0.08)]" />
+        ) : filteredPoints.length ? (
           <motion.div initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }} className="h-full w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
@@ -237,6 +203,10 @@ export default function AttackFrequencyChart() {
               </LineChart>
             </ResponsiveContainer>
           </motion.div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm font-mono uppercase tracking-[0.35em] text-muted">
+            No telemetry yet
+          </div>
         )}
       </CardContent>
       <div className="flex flex-wrap items-center gap-4 border-t border-[rgba(255,74,0,0.12)] px-6 py-4 text-[11px] font-mono uppercase tracking-[0.35em] text-muted">

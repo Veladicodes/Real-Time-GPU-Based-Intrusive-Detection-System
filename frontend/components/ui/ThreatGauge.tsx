@@ -73,21 +73,6 @@ function ThreatGaugeComponent({ value, label = "Threat Level", lastUpdated }: Th
     [toneColor],
   )
 
-  if (activeAlerts === 0) {
-    return (
-      <section
-        className={clsx(
-          "panel threat-index relative flex w-full max-w-sm flex-col items-center justify-center gap-3 bg-transparent p-6",
-        )}
-        role="status"
-        aria-live="polite"
-      >
-        <p className="text-xs font-mono uppercase tracking-[0.35em] text-muted">{label}</p>
-        <div className="rounded border border-dashed border-muted/50 px-6 py-8 text-sm text-muted">No active threats</div>
-      </section>
-    )
-  }
-
   return (
     <section
       className={clsx("panel threat-index relative flex w-full max-w-sm flex-col items-center gap-4 bg-transparent p-6")}
