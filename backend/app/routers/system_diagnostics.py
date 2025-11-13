@@ -1,10 +1,9 @@
-"""System diagnostics router providing live health telemetry and controls."""
+"""System diagnostics router exposing health telemetry and maintenance controls."""
 
 from __future__ import annotations
 
 import asyncio
-import os
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -12,185 +11,188 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 try:
-    import redis.asyncio as aioredis
+    from redis.asyncio import Redis  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover
-    import aioredis  # type: ignore
+    from aioredis import Redis  # type: ignore
 
 from app.dependencies import get_redis
+from app.security import decode_token, verify_jwt_token
 from app.utils.diagnostics_utils import (
+    MAINTENANCE_KEY,
+    WARNINGS_KEY,
     build_fleet_snapshot,
+    fetch_maintenance,
     gather_system_snapshot,
-    load_warnings,             # ✅ renamed (was get_cached_warnings)
-    is_maintenance_mode,       # ✅ use Tier-0 name instead of get_maintenance_mode
-    run_system_scan,
-    set_maintenance_mode,
+    load_warnings,
+    run_diagnostic_scan,
+    set_maintenance,
 )
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 router = APIRouter(prefix="/api/system", tags=["System Diagnostics"])
 
-# Active clients and async control locks
-telemetry_clients: Set[WebSocket] = set()
-telemetry_task: Optional[asyncio.Task] = None
-scan_task: Optional[asyncio.Task] = None
-telemetry_lock = asyncio.Lock()
-scan_lock = asyncio.Lock()
+
+class TelemetryBroadcaster:
+    """Manage WebSocket clients and periodic telemetry publishing."""
+
+    def __init__(self) -> None:
+        self._clients: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+        self._task: Optional[asyncio.Task] = None
+        self._app: Any = None
+        self._running = asyncio.Event()
+
+    async def start(self, app) -> None:
+        self._app = app
+        if self._task is None or self._task.done():
+            self._running.set()
+            self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        if self._task:
+            self._running.clear()
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:  # pragma: no cover - cooperative cancellation
+                pass
+            self._task = None
+
+    async def register(self, websocket: WebSocket) -> None:
+        async with self._lock:
+            self._clients.add(websocket)
+
+    async def unregister(self, websocket: WebSocket) -> None:
+        async with self._lock:
+            self._clients.discard(websocket)
+
+    async def broadcast(self, message: Dict[str, Any]) -> None:
+        payload = orjson.dumps(message)
+        async with self._lock:
+            stale: List[WebSocket] = []
+            for ws in list(self._clients):
+                try:
+                    await ws.send_bytes(payload)
+                except Exception:
+                    stale.append(ws)
+            for ws in stale:
+                self._clients.discard(ws)
+
+    async def _run(self) -> None:
+        while self._running.is_set():
+            await asyncio.sleep(0)
+            if self._app is None:
+                await asyncio.sleep(2.0)
+                continue
+            redis: Optional[Redis] = getattr(self._app.state, "redis", None)
+            if redis is None:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                snapshot = await gather_system_snapshot(self._app, redis)
+                await self.broadcast({"type": "metrics", "payload": snapshot})
+            except Exception:  # pragma: no cover - telemetry loop is best effort
+                await asyncio.sleep(2.0)
+                continue
+            await asyncio.sleep(2.0)
+
+
+telemetry_manager = TelemetryBroadcaster()
 
 
 class MaintenanceRequest(BaseModel):
-    """Request schema for enabling or disabling maintenance mode."""
-    enabled: bool = Field(..., description="Enable or disable global maintenance mode.")
+    enabled: bool = Field(..., description="Maintenance mode flag.")
 
 
-# ---------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------
-async def _ensure_redis(request: Request) -> aioredis.Redis:
-    """Ensure Redis connection is available and cached in app state."""
-    redis = getattr(request.app.state, "redis", None)
-    if redis:
-        try:
-            await redis.ping()
-            return redis
-        except Exception:
-            pass
-    # Fallback reconnect
-    redis = await aioredis.from_url(
-        REDIS_URL,
-        encoding="utf-8",
-        decode_responses=True,
-        health_check_interval=30,
-    )
-    request.app.state.redis = redis
-    return redis
-
-
-async def _broadcast(message: Dict[str, Any]) -> None:
-    """Send a message to all connected WebSocket clients."""
-    if not telemetry_clients:
-        return
-    payload = orjson.dumps(message)
-    stale: List[WebSocket] = []
-    for websocket in telemetry_clients.copy():
-        try:
-            await websocket.send_bytes(payload)
-        except Exception:
-            stale.append(websocket)
-    for websocket in stale:
-        telemetry_clients.discard(websocket)
-
-
-async def _telemetry_loop(request: Request) -> None:
-    """Background loop that periodically sends system telemetry snapshots."""
-    try:
-        while telemetry_clients:
-            redis = await _ensure_redis(request)
-            snapshot = await gather_system_snapshot(request.app, redis)
-            await _broadcast({"type": "metrics", "payload": snapshot})
-            await asyncio.sleep(2.0)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        global telemetry_task
-        telemetry_task = None
-
-
-async def _ensure_telemetry_loop(request: Request) -> None:
-    """Start telemetry loop if not already running."""
-    global telemetry_task
-    async with telemetry_lock:
-        if telemetry_task is None or telemetry_task.done():
-            telemetry_task = asyncio.create_task(
-                _telemetry_loop(request),
-                name="system-telemetry-loop",
-            )
-
-
-async def _run_scan(request: Request) -> None:
-    """Perform a one-off system diagnostics scan and broadcast results."""
-    try:
-        redis = await _ensure_redis(request)
-        result = await run_system_scan(request.app, redis)
-        await _broadcast({"type": "scan_result", "payload": result})
-    finally:
-        global scan_task
-        scan_task = None
-
-
-# ---------------------------------------------------------------------
-# API endpoints
-# ---------------------------------------------------------------------
-@router.get("/status")
-async def read_system_status(
-    request: Request, redis: aioredis.Redis = Depends(get_redis)
-) -> Dict[str, Any]:
-    """Return current live system telemetry snapshot."""
+@router.get(
+    "/status",
+    dependencies=[Depends(verify_jwt_token)],
+)
+async def system_status(request: Request, redis: Redis = Depends(get_redis)) -> Dict[str, Any]:
     snapshot = await gather_system_snapshot(request.app, redis)
+    snapshot["warnings"] = await load_warnings(redis)
     return snapshot
 
 
-@router.post("/scan")
-async def trigger_system_scan(request: Request) -> Dict[str, Any]:
-    """Trigger a background system diagnostic scan."""
-    global scan_task
-    async with scan_lock:
-        if scan_task and not scan_task.done():
-            return {"status": "scan_in_progress"}
-        scan_task = asyncio.create_task(_run_scan(request), name="system-scan")
+@router.post(
+    "/scan",
+    dependencies=[Depends(verify_jwt_token)],
+)
+async def trigger_system_scan(request: Request) -> Dict[str, str]:
+    app = request.app
+
+    async def _run():
+        redis: Optional[Redis] = getattr(app.state, "redis", None)
+        if redis is None:
+            return
+        result = await run_diagnostic_scan(app, redis)
+        await telemetry_manager.broadcast({"type": "scan_result", "payload": result})
+
+    asyncio.create_task(_run())
     return {"status": "scan_started"}
 
 
-@router.post("/maintenance")
-async def maintenance_toggle(
-    request: Request,
-    body: MaintenanceRequest,
-) -> Dict[str, Any]:
-    """Enable or disable system maintenance mode."""
-    redis = await _ensure_redis(request)
-    await set_maintenance_mode(redis, body.enabled)
-    await _broadcast({"type": "maintenance_toggle", "payload": {"enabled": body.enabled}})
-    snapshot = await gather_system_snapshot(request.app, redis)
-    return {"status": "ok", "maintenance": body.enabled, "snapshot": snapshot}
+@router.post(
+    "/maintenance",
+    dependencies=[Depends(verify_jwt_token)],
+)
+async def toggle_maintenance(request: Request, payload: MaintenanceRequest, redis: Redis = Depends(get_redis)) -> Dict[str, Any]:
+    await set_maintenance(redis, payload.enabled)
+    app = request.app
+    setattr(app.state, "maintenance_mode", payload.enabled)
+    await telemetry_manager.broadcast({"type": "maintenance_toggle", "payload": {"enabled": payload.enabled}})
+    return {"maintenance_mode": payload.enabled}
 
 
-@router.get("/fleet")
-async def fleet_status(
-    request: Request,
-    redis: aioredis.Redis = Depends(get_redis),
-) -> List[Dict[str, Any]]:
-    """Return simulated or cached fleet node telemetry."""
-    snapshot = await gather_system_snapshot(request.app, redis)
-    fleet = await build_fleet_snapshot(redis, snapshot)
-    return fleet
+@router.get(
+    "/fleet",
+    dependencies=[Depends(verify_jwt_token)],
+)
+async def get_fleet() -> List[Dict[str, Any]]:
+    return build_fleet_snapshot()
+
+
+async def _authenticate_websocket(websocket: WebSocket) -> bool:
+    token: Optional[str] = None
+    auth_header = websocket.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1]
+    else:
+        token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401)
+        return False
+    try:
+        decode_token(token)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return False
+    return True
 
 
 @router.websocket("/ws/system/telemetry")
-async def system_telemetry_socket(websocket: WebSocket, request: Request) -> None:
-    """WebSocket endpoint for continuous system telemetry stream."""
+async def websocket_system(websocket: WebSocket):
+    if not await _authenticate_websocket(websocket):
+        return
     await websocket.accept()
-    telemetry_clients.add(websocket)
-
-    redis = await _ensure_redis(request)
-    initial_snapshot = await gather_system_snapshot(request.app, redis)
-    await websocket.send_bytes(orjson.dumps({"type": "metrics", "payload": initial_snapshot}))
-
-    warnings = await load_warnings(redis)   # ✅ replaced call
-    if warnings:
-        await websocket.send_bytes(orjson.dumps({"type": "warnings", "payload": warnings}))
-
-    await _ensure_telemetry_loop(request)
-
+    await telemetry_manager.register(websocket)
+    app = websocket.app
+    await telemetry_manager.start(app)
     try:
+        # Attach latest snapshot upon connection
+        redis: Optional[Redis] = getattr(app.state, "redis", None)
+        if redis is not None:
+            snapshot = await gather_system_snapshot(app, redis)
+            await websocket.send_bytes(orjson.dumps({"type": "metrics", "payload": snapshot}))
+            warnings = await load_warnings(redis)
+            if warnings:
+                await websocket.send_bytes(orjson.dumps({"type": "warnings", "payload": warnings}))
+
         while True:
-            # Keep connection alive — we don’t expect messages from clients.
             await websocket.receive_text()
     except WebSocketDisconnect:
-        telemetry_clients.discard(websocket)
-        if not telemetry_clients and telemetry_task:
-            telemetry_task.cancel()
+        await telemetry_manager.unregister(websocket)
     except Exception:
-        telemetry_clients.discard(websocket)
-        if not telemetry_clients and telemetry_task:
-            telemetry_task.cancel()
+        await telemetry_manager.unregister(websocket)
         await websocket.close()
+
+

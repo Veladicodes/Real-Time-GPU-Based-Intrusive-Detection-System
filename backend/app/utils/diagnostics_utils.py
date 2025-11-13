@@ -14,21 +14,17 @@ import psutil
 
 from app.utils.gpu_helpers import GPUStats, get_gpu_stats
 
-# ---- Thresholds ----
 WARN_CPU_PERCENT = 90.0
 WARN_MEM_PERCENT = 85.0
 WARN_DISK_FREE_PERCENT = 10.0
 WARN_REDIS_LATENCY_MS = 150.0
 
-MAINTENANCE_KEY = "system:maintenance:enabled"
+MAINTENANCE_KEY = "system:maintenance"
 WARNINGS_KEY = "system:warnings"
 
 _PROCESS_START = time.perf_counter()
 
 
-# ---------------------------------------------------------
-# Basic Utilities
-# ---------------------------------------------------------
 def uptime_human() -> str:
     """Return process uptime as HH:MM:SS string."""
     seconds = max(0.0, time.perf_counter() - _PROCESS_START)
@@ -37,35 +33,16 @@ def uptime_human() -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-async def is_maintenance_mode(redis) -> bool:
-    """
-    Return True if global maintenance mode is active.
-    Gracefully handles missing key or Redis errors.
-    """
-    try:
-        value = await redis.get(MAINTENANCE_KEY)
-        if value is None:
-            return False
-        return str(value).lower() in {"1", "true", "yes", "on"}
-    except Exception:
-        return False
+async def fetch_maintenance(redis) -> bool:
+    value = await redis.get(MAINTENANCE_KEY)
+    return str(value).lower() in {"1", "true", "yes", "on"}
 
 
-async def set_maintenance_mode(redis, enabled: bool) -> None:
-    """
-    Enable or disable global maintenance mode.
-    """
-    try:
-        if enabled:
-            await redis.set(MAINTENANCE_KEY, "1")
-        else:
-            await redis.delete(MAINTENANCE_KEY)
-    except Exception:
-        pass
+async def set_maintenance(redis, enabled: bool) -> None:
+    await redis.set(MAINTENANCE_KEY, "1" if enabled else "0")
 
 
 async def gather_cache_hit(redis) -> float:
-    """Compute Redis cache hit ratio as percentage."""
     info = await redis.info(section="stats")
     hits = float(info.get("keyspace_hits", 0))
     misses = float(info.get("keyspace_misses", 0))
@@ -76,7 +53,7 @@ async def gather_cache_hit(redis) -> float:
 
 
 async def ping_redis(redis) -> Tuple[bool, float]:
-    """Return Redis connectivity and latency (ms)."""
+    """Return redis connectivity and latency in milliseconds."""
     start = time.perf_counter()
     try:
         await redis.ping()
@@ -87,14 +64,12 @@ async def ping_redis(redis) -> Tuple[bool, float]:
 
 
 def disk_warning() -> Tuple[float, float]:
-    """Return disk free percent and free GB."""
     usage = psutil.disk_usage("/")
     free_percent = (usage.free / usage.total) * 100.0 if usage.total else 0.0
     return round(free_percent, 2), round(usage.free / (1024 * 1024 * 1024), 2)
 
 
 def collect_cpu_memory() -> Tuple[float, float, float]:
-    """Collect CPU and memory usage stats."""
     cpu_percent = psutil.cpu_percent(interval=None)
     memory = psutil.virtual_memory()
     swap = psutil.swap_memory()
@@ -106,13 +81,9 @@ def collect_cpu_memory() -> Tuple[float, float, float]:
 
 
 def collect_gpu_stats() -> GPUStats:
-    """Return GPU stats via helper."""
     return get_gpu_stats()
 
 
-# ---------------------------------------------------------
-# Warning & State Tracking
-# ---------------------------------------------------------
 async def compute_warnings(
     *,
     cpu: float,
@@ -122,7 +93,6 @@ async def compute_warnings(
     disk_free_percent: float,
     disk_free_gb: float,
 ) -> List[str]:
-    """Generate human-readable warnings based on thresholds."""
     warnings: List[str] = []
     if cpu >= WARN_CPU_PERCENT:
         warnings.append(f"High CPU load detected ({cpu:.1f}%).")
@@ -138,13 +108,11 @@ async def compute_warnings(
 
 
 async def store_warnings(redis, warnings: List[str]) -> None:
-    """Store warnings in Redis."""
     payload = orjson.dumps({"warnings": warnings, "timestamp": datetime.utcnow().isoformat()})
     await redis.set(WARNINGS_KEY, payload.decode("utf-8"))
 
 
 async def load_warnings(redis) -> List[str]:
-    """Load warnings from Redis."""
     raw = await redis.get(WARNINGS_KEY)
     if not raw:
         return []
@@ -155,17 +123,13 @@ async def load_warnings(redis) -> List[str]:
         return []
 
 
-# ---------------------------------------------------------
-# System Snapshot
-# ---------------------------------------------------------
 async def gather_system_snapshot(app, redis) -> Dict[str, Any]:
-    """Aggregate full system telemetry snapshot."""
     cpu_percent, mem_percent, _ = collect_cpu_memory()
     gpu_stats = collect_gpu_stats()
     disk_percent_free, disk_free_gb = disk_warning()
     redis_ok, redis_latency = await ping_redis(redis)
     cache_hit = await gather_cache_hit(redis) if redis_ok else 0.0
-    maintenance = await is_maintenance_mode(redis)
+    maintenance = await fetch_maintenance(redis)
     warnings = await compute_warnings(
         cpu=cpu_percent,
         memory=mem_percent,
@@ -174,13 +138,15 @@ async def gather_system_snapshot(app, redis) -> Dict[str, Any]:
         disk_free_percent=disk_percent_free,
         disk_free_gb=disk_free_gb,
     )
-
-    await store_warnings(redis, warnings)
+    if warnings:
+        await store_warnings(redis, warnings)
+    else:
+        await store_warnings(redis, [])
 
     model_load_ms = await estimate_model_load_ms(app)
     uptime = uptime_human()
 
-    return {
+    snapshot = {
         "uptime": uptime,
         "backend_latency_ms": redis_latency if redis_ok else None,
         "model_load_ms": model_load_ms,
@@ -197,13 +163,16 @@ async def gather_system_snapshot(app, redis) -> Dict[str, Any]:
         "disk_free_percent": disk_percent_free,
         "disk_free_gb": disk_free_gb,
     }
+    return snapshot
 
 
 async def estimate_model_load_ms(app) -> float:
-    """Roughly estimate model load latency (ms)."""
+    """Return a rough estimate for model load by timing a lightweight call."""
     model_service = getattr(app.state, "model_service", None)
     if model_service is None:
         return 0.0
+
+    # Try to re-use cached results to avoid expensive reloads
     cached = getattr(app.state, "model_load_cache", None)
     if cached is not None:
         return float(cached)
@@ -219,11 +188,8 @@ async def estimate_model_load_ms(app) -> float:
     return float(load_ms)
 
 
-# ---------------------------------------------------------
-# Fleet + Network Diagnostics
-# ---------------------------------------------------------
 def build_fleet_snapshot() -> List[Dict[str, Any]]:
-    """Return simulated fleet telemetry snapshot."""
+    """Return simulated fleet telemetry for now."""
     nodes = []
     base_latency = 25.0
     for idx in range(1, 5):
@@ -245,15 +211,14 @@ def build_fleet_snapshot() -> List[Dict[str, Any]]:
     return nodes
 
 
-async def run_system_scan(app, redis) -> Dict[str, Any]:
-    """Perform deep runtime system diagnostics."""
+async def run_diagnostic_scan(app, redis) -> Dict[str, Any]:
     redis_ok, redis_latency = await ping_redis(redis)
     gpu_stats = collect_gpu_stats()
     disk_percent_free, disk_free_gb = disk_warning()
     network_ok = await check_network_stack()
     model_ok = await check_model_warmup(app)
 
-    return {
+    result = {
         "redis": {"ok": redis_ok, "latency_ms": redis_latency},
         "gpu": {
             "ok": gpu_stats.utilization >= 0.0,
@@ -261,19 +226,15 @@ async def run_system_scan(app, redis) -> Dict[str, Any]:
             "utilization": gpu_stats.utilization,
             "memory_mb": gpu_stats.memory_used_mb,
         },
-        "disk": {
-            "ok": disk_percent_free > WARN_DISK_FREE_PERCENT,
-            "free_percent": disk_percent_free,
-            "free_gb": disk_free_gb,
-        },
+        "disk": {"ok": disk_percent_free > WARN_DISK_FREE_PERCENT, "free_percent": disk_percent_free, "free_gb": disk_free_gb},
         "network": {"ok": network_ok},
         "model": model_ok,
         "timestamp": datetime.utcnow().isoformat(),
     }
+    return result
 
 
 async def check_network_stack() -> bool:
-    """Check if local network resolution is working."""
     loop = asyncio.get_running_loop()
 
     def _socket_check() -> bool:
@@ -287,7 +248,6 @@ async def check_network_stack() -> bool:
 
 
 async def check_model_warmup(app) -> Dict[str, Any]:
-    """Perform quick model warmup test."""
     model_service = getattr(app.state, "model_service", None)
     if model_service is None or getattr(model_service, "model", None) is None:
         return {"ok": False, "detail": "Model not loaded"}
@@ -304,8 +264,5 @@ async def check_model_warmup(app) -> Dict[str, Any]:
 
     elapsed_ms = (time.perf_counter() - start) * 1_000.0
     return {"ok": True, "latency_ms": round(elapsed_ms, 2)}
-# ---------------------------------------------------------------------
-# Backward compatibility aliases (for older routers)
-# ---------------------------------------------------------------------
 
-fetch_maintenance = is_maintenance_mode
+

@@ -1,173 +1,176 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "framer-motion"
+import { Bot } from "lucide-react"
 
-import type { LogMessage } from "@/hooks/useWebSocketLogs"
+const REFRESH_INTERVAL = 20_000
+const INITIAL_MESSAGE = "Initializing neural synopsis…"
 
-type AINarratorProps = {
-  threatLevel: number
-  logs: LogMessage[]
-  muted?: boolean
-  intervalMs?: number
+type NarrativeResponse = {
+  narrative: string
+  generated_at?: string
 }
 
-const SUMMARY_INTERVAL = 20_000
+export function AINarrator() {
+  const [narrative, setNarrative] = useState<string>(INITIAL_MESSAGE)
+  const [displayText, setDisplayText] = useState<string>(INITIAL_MESSAGE)
+  const [timestamp, setTimestamp] = useState<string | null>(null)
+  const [muted, setMuted] = useState<boolean>(false)
+  const [loading, setLoading] = useState<boolean>(true)
 
-export function AINarrator({ threatLevel, logs, muted = false, intervalMs = SUMMARY_INTERVAL }: AINarratorProps) {
-  const [summary, setSummary] = useState<string>("Awaiting telemetry synopsis…")
-  const [displayText, setDisplayText] = useState<string>("Awaiting telemetry synopsis…")
-  const [timestamp, setTimestamp] = useState<number>(Date.now())
   const synthRef = useRef<SpeechSynthesis | null>(null)
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
-  const lastSpokenRef = useRef<string>("")
+  const voiceRef = useRef<SpeechSynthesisVoice | null>(null)
+  const speakTimeoutRef = useRef<number>()
   const typingTimeoutRef = useRef<number>()
+  const lastNarrativeRef = useRef<string>("")
+
+  const fetchNarrative = useCallback(async () => {
+    try {
+      const response = await fetch("/api/summary/narrative")
+      if (!response.ok) throw new Error(`Narrative request failed: ${response.status}`)
+      const payload = (await response.json()) as NarrativeResponse
+      if (!payload?.narrative) return
+      const text = payload.narrative.trim()
+      if (text && text !== lastNarrativeRef.current) {
+        lastNarrativeRef.current = text
+        setNarrative(text)
+        setTimestamp(payload.generated_at ?? new Date().toISOString())
+        setLoading(false)
+      }
+    } catch (error) {
+      console.warn("[AI Narrator] failed to fetch narrative", error)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === "undefined") return
     synthRef.current = window.speechSynthesis
+
+    const assignVoice = () => {
+      if (!synthRef.current) return
+      const voices = synthRef.current.getVoices()
+      if (!voices.length) return
+      const preferred =
+        voices.find((voice) => /male|man|baritone|david|brian/i.test(`${voice.name} ${voice.voiceURI}`) && voice.lang.startsWith("en")) ??
+        voices.find((voice) => voice.lang.startsWith("en")) ??
+        voices[0]
+      voiceRef.current = preferred
+    }
+
+    assignVoice()
+    synthRef.current.addEventListener("voiceschanged", assignVoice)
+
     return () => {
       synthRef.current?.cancel()
+      synthRef.current?.removeEventListener("voiceschanged", assignVoice)
+      if (speakTimeoutRef.current) window.clearTimeout(speakTimeoutRef.current)
+      if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current)
     }
   }, [])
 
-  const computedSummary = useMemo(() => {
-    if (threatLevel <= 30) {
-      return {
-        text: "Threat index nominal. Monitoring channels stand by.",
-        key: "idle",
-      }
-    }
-
-    const recent = logs.slice(-25)
-    const alerts = recent.filter((log) => log.type === "ALERT")
-    const warnings = recent.filter((log) => log.type === "WARNING")
-    const critical = alerts.length
-    const dominant = dominantPattern(alerts) ?? dominantPattern(warnings) ?? "baseline traffic"
-    const topIp = extractTopIp(alerts.length ? alerts : recent)
-    const confidence = averageConfidence(alerts.length ? alerts : recent)
-    const text = `At ${new Date().toUTCString()}, ${critical + warnings.length} incidents detected. Dominant pattern ${dominant}, confidence ${confidence} percent${topIp ? `, primary source ${topIp}` : ""}.`
-    return { text, key: `${critical}-${dominant}-${topIp}-${confidence}` }
-  }, [logs, threatLevel])
-
   useEffect(() => {
-    const speak = (text: string) => {
+    fetchNarrative()
+    const interval = window.setInterval(fetchNarrative, REFRESH_INTERVAL)
+    return () => window.clearInterval(interval)
+  }, [fetchNarrative])
+
+  const speak = useCallback(
+    (text: string) => {
       if (muted) return
-      if (!synthRef.current || typeof window === "undefined") return
+      if (!synthRef.current) return
       synthRef.current.cancel()
       const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 1.05
-      utterance.pitch = 1.1
-      const voices = synthRef.current.getVoices()
-      const preferred = voices.find((voice) => /female|woman|en-us/i.test(voice.name))
-      if (preferred) utterance.voice = preferred
-      utteranceRef.current = utterance
-      synthRef.current.speak(utterance)
-    }
+      utterance.rate = 1.04
+      utterance.pitch = 0.95
+      utterance.volume = 0.9
+      if (voiceRef.current) utterance.voice = voiceRef.current
+      speakTimeoutRef.current = window.setTimeout(() => {
+        synthRef.current?.speak(utterance)
+      }, 250)
+    },
+    [muted],
+  )
 
-    const handleSummary = () => {
-      const { text, key } = computedSummary
-      if (key === lastSpokenRef.current) return
-      lastSpokenRef.current = key
-      setSummary(text)
-      setTimestamp(Date.now())
-      speak(text)
-    }
-
-    handleSummary()
-    const interval = setInterval(handleSummary, intervalMs)
-    return () => clearInterval(interval)
-  }, [computedSummary, intervalMs, muted])
+  useEffect(() => {
+    if (!narrative) return
+    speak(narrative)
+  }, [narrative, speak])
 
   useEffect(() => {
     if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current)
     let index = 0
-    const target = summary
-    const step = () => {
+    const target = narrative
+    const typeNext = () => {
       setDisplayText(target.slice(0, index))
       index += 1
       if (index <= target.length) {
-        typingTimeoutRef.current = window.setTimeout(step, 25)
+        typingTimeoutRef.current = window.setTimeout(typeNext, 18)
       }
     }
-    step()
+    typeNext()
     return () => {
       if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current)
     }
-  }, [summary])
+  }, [narrative])
+
+  const formattedTimestamp = useMemo(() => {
+    if (!timestamp) return "--"
+    return new Date(timestamp).toLocaleTimeString("en-GB", { hour12: false })
+  }, [timestamp])
 
   return (
-    <div className="ai-narrator-box pointer-events-auto w-full max-w-sm rounded-[var(--radius)] p-5 font-mono text-sm text-muted">
-      <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.35em] text-brand">
-        <span>AI NARRATOR</span>
-        <span>{new Date(timestamp).toLocaleTimeString("en-GB", { hour12: false })}Z</span>
-      </div>
-      <AnimatePresence mode="wait">
-        <motion.p
-          key={summary}
-          className="min-h-[4rem] whitespace-pre-line text-text"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
+    <div className="relative flex w-full max-w-md flex-col gap-4 rounded-2xl border border-[rgba(255,74,0,0.25)] bg-[rgba(5,5,5,0.82)] p-5 shadow-[0_0_22px_rgba(255,74,0,0.18)] backdrop-blur">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <motion.div
+            animate={{ scale: [1, 1.06, 1], opacity: [0.8, 1, 0.8] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[rgba(255,74,0,0.18)]"
+          >
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[rgba(255,74,0,0.35)] to-transparent blur-md" />
+            <Bot className="relative h-5 w-5 text-brand" />
+          </motion.div>
+          <div className="flex flex-col">
+            <span className="text-xs font-mono uppercase tracking-[0.35em] text-brand">AI Narrator</span>
+            <span className="text-[0.65rem] font-mono uppercase tracking-[0.25em] text-muted">
+              {loading ? "Calibrating..." : `${formattedTimestamp}Z`}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMuted((prev) => !prev)}
+          className={`rounded-full border px-3 py-1 text-[0.65rem] font-mono uppercase tracking-[0.3em] transition ${
+            muted ? "border-[rgba(255,74,0,0.35)] text-muted" : "border-brand/40 text-brand hover:border-brand/60"
+          }`}
         >
-          {displayText}
-        </motion.p>
-      </AnimatePresence>
-      <div className="mt-3 h-px w-full bg-gradient-to-r from-transparent via-[rgba(243,91,4,0.5)] to-transparent" />
-      <div className="mt-2 text-[0.65rem] uppercase tracking-[0.4em] text-muted">
-        {muted ? "Audio muted" : "Audio active"}
+          {muted ? "Audio Off" : "Audio On"}
+        </button>
+      </div>
+
+      <div className="relative overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={narrative}
+            className="min-h-[4.5rem] whitespace-pre-line font-mono text-sm text-neutral-200 leading-relaxed"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          >
+            {displayText}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-[rgba(255,74,0,0.55)] to-transparent" />
+      <div className="text-[0.65rem] font-mono uppercase tracking-[0.35em] text-[rgba(255,255,255,0.55)]">
+        Neural voice: {muted ? "Muted" : "Active"}
       </div>
     </div>
   )
-}
-
-function extractTopIp(logs: LogMessage[]) {
-  if (!logs.length) return null
-  const counts = new Map<string, number>()
-  logs.forEach((log) => {
-    if (!log.src_ip) return
-    counts.set(log.src_ip, (counts.get(log.src_ip) ?? 0) + 1)
-  })
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1])
-  return sorted[0]?.[0] ?? null
-}
-
-function dominantPattern(logs: LogMessage[]) {
-  if (!logs.length) return null
-  const patterns = new Map<string, number>()
-  logs.forEach((log) => {
-    const rawMessage =
-      typeof log.raw?.message === "string"
-        ? (log.raw.message as string)
-        : typeof (log.raw as Record<string, unknown>)?.description === "string"
-          ? String((log.raw as Record<string, unknown>).description)
-          : undefined
-    const key = log.threat ?? rawMessage ?? "unknown"
-    patterns.set(key, (patterns.get(key) ?? 0) + 1)
-  })
-  const sorted = [...patterns.entries()].sort((a, b) => b[1] - a[1])
-  return sorted[0]?.[0] ?? null
-}
-
-function averageConfidence(logs: LogMessage[]) {
-  const confidences = logs
-    .map((log) => {
-      if (typeof log.confidence === "number") return log.confidence
-      const rawMessage =
-        typeof log.raw?.message === "string"
-          ? (log.raw.message as string)
-          : typeof (log.raw as Record<string, unknown>)?.description === "string"
-            ? String((log.raw as Record<string, unknown>).description)
-            : ""
-      const match = /(\d+)%/.exec(rawMessage)
-      return match ? Number.parseFloat(match[1]) : 0
-    })
-    .filter((value) => Number.isFinite(value))
-  if (!confidences.length) return 0
-  const avg = confidences.reduce((acc, value) => acc + value, 0) / confidences.length
-  return Math.round(avg)
 }
 
 export default AINarrator

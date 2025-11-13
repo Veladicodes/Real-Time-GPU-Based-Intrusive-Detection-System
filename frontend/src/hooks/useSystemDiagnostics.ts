@@ -11,8 +11,6 @@ export type SystemSnapshot = {
   cache_hit_percent: number
   cpu_load: number
   memory_util: number
-  memory_used_mb?: number
-  memory_total_mb?: number
   gpu_util: number
   gpu_mem: number
   gpu_name: string
@@ -24,11 +22,10 @@ export type SystemSnapshot = {
 
 export type FleetNode = {
   id: string
-  status: "online" | "offline" | "warning" | "maintenance"
+  status: "online" | "offline" | "warning"
   latency_ms: number | null
   packet_rate: number
   location?: string
-  timestamp?: string
 }
 
 export type MetricsHistoryPoint = {
@@ -41,16 +38,12 @@ export type MetricsHistoryPoint = {
 }
 
 export type ScanResult = {
-  status: string
-  timestamp: string
-  details: {
-    redis: { status: string; latency_ms: number | null }
-    model: { status: string; load_ms: number | null }
-    gpu: { status: string; name: string | null; util: number; memory_mb: number }
-    disk: { percent: number; free_gb: number; total_gb: number }
-    network: { bytes_sent: number; bytes_recv: number; packets_sent: number; packets_recv: number }
-    warnings: string[]
-  }
+  redis?: { ok: boolean; latency_ms: number }
+  gpu?: { ok: boolean; name: string; utilization: number; memory_mb: number }
+  disk?: { ok: boolean; free_percent: number; free_gb: number }
+  network?: { ok: boolean }
+  model?: { ok: boolean; detail?: string; latency_ms?: number }
+  timestamp?: string
 }
 
 type UseSystemDiagnosticsReturn = {

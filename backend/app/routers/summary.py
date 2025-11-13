@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -68,6 +70,38 @@ async def read_attack_summary(
         narrative=narrative,
         timeline=timeline,
         **stats,
+    )
+
+
+class NarrativeResponse(BaseModel):
+    narrative: str = Field(..., description="Latest AI-generated narrative for threat telemetry.")
+    generated_at: datetime = Field(..., description="UTC timestamp the narrative was generated.")
+    minutes: int = Field(..., description="Lookback window used to generate the narrative.")
+
+
+@router.get(
+    "/narrative",
+    response_model=NarrativeResponse,
+    summary="Retrieve the latest AI-generated narrative synopsis.",
+)
+async def read_narrative(
+    request: Request,
+    minutes: int = Query(
+        5,
+        ge=1,
+        le=60,
+        description="Time window in minutes to synthesise the narrative.",
+    ),
+    redis: Redis = Depends(get_redis),
+) -> NarrativeResponse:
+    narrative_service = getattr(request.app.state, "narrative_service", None)
+    if narrative_service is None:
+        raise HTTPException(status_code=503, detail="Narrative service unavailable")
+    narrative = await narrative_service.generate(redis, minutes=minutes)
+    return NarrativeResponse(
+        narrative=narrative,
+        generated_at=datetime.now(timezone.utc),
+        minutes=minutes,
     )
 
 

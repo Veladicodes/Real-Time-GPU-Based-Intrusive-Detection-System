@@ -7,6 +7,7 @@ import { motion } from "framer-motion"
 import AnomalyTimeline from "@/components/AnomalyTimeline"
 import RadarSweep from "@/components/RadarSweep"
 import { NeonParticleBackdrop } from "@/components/ui/NeonParticleBackdrop"
+import AINarrator from "@/components/ui/AINarrator"
 import { StatBox } from "@/components/ui/StatBox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import ThreatTable from "@/components/ThreatTable"
@@ -52,18 +53,23 @@ export default function ThreatAnalyticsPage() {
     <div className="relative flex min-h-screen flex-col gap-6 overflow-hidden bg-bg p-6 text-text">
       <NeonParticleBackdrop intensity={0.25} className="opacity-50" />
 
-      <motion.header initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="z-10 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-display tracking-[0.4em] text-brand">THREAT ANALYTICS</h1>
-            <p className="text-sm text-muted">Streaming hostile vectors, anomaly telemetry, and defensive posture.</p>
+      <motion.header initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="z-10">
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="space-y-3">
+            <div>
+              <h1 className="text-2xl font-display tracking-[0.4em] text-brand">THREAT ANALYTICS</h1>
+              <p className="text-sm text-muted">Streaming hostile vectors, anomaly telemetry, and defensive posture.</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono uppercase tracking-[0.35em] text-muted">
+              <span className={statsConnected ? "text-brand" : "text-accent-red"}>
+                {statsConnected ? "Stats Live" : "Stats Offline"}
+              </span>
+              <span className={eventsConnected ? "text-brand" : "text-accent-red"}>
+                {eventsConnected ? "Threat Stream Live" : "Threat Stream Offline"}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-xs font-mono uppercase tracking-[0.35em] text-muted">
-            <span className={statsConnected ? "text-brand" : "text-accent-red"}>{statsConnected ? "Stats Live" : "Stats Offline"}</span>
-            <span className={eventsConnected ? "text-brand" : "text-accent-red"}>
-              {eventsConnected ? "Threat Stream Live" : "Threat Stream Offline"}
-            </span>
-          </div>
+          <AINarrator />
         </div>
       </motion.header>
 

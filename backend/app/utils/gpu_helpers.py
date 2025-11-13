@@ -1,4 +1,4 @@
-"""GPU helper utilities for diagnostics, telemetry, and safe fallbacks."""
+"""GPU utility helpers for telemetry collection."""
 
 from __future__ import annotations
 
@@ -8,10 +8,6 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 
-
-# ============================================================
-# Unified GPU metrics model
-# ============================================================
 
 @dataclass(slots=True)
 class GPUStats:
@@ -23,48 +19,32 @@ class GPUStats:
     memory_total_mb: float = 0.0
 
 
-# ============================================================
-# Provider 1: NVIDIA Management Library (pynvml)
-# ============================================================
-
 def _query_via_pynvml() -> Optional[GPUStats]:
-    """Query GPU metrics via pynvml bindings if available."""
-    try:
+    try:  # pragma: no cover - optional dependency
         import pynvml  # type: ignore
     except Exception:
         return None
 
-    try:
+    with contextlib.suppress(Exception):
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        name = pynvml.nvmlDeviceGetName(handle)
-        if isinstance(name, bytes):
-            name = name.decode("utf-8")
-
+        name = pynvml.nvmlDeviceGetName(handle).decode("utf-8")
         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
         memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
         stats = GPUStats(
-            name=str(name),
-            utilization=float(getattr(util, "gpu", 0.0)),
-            memory_used_mb=float(memory.used) / 1_048_576.0,
-            memory_total_mb=float(memory.total) / 1_048_576.0,
+            name=name,
+            utilization=float(util.gpu),
+            memory_used_mb=float(memory.used) / 1_000_000.0,
+            memory_total_mb=float(memory.total) / 1_000_000.0,
         )
+        pynvml.nvmlShutdown()
         return stats
-    except Exception:
-        return None
-    finally:
-        with contextlib.suppress(Exception):
-            pynvml.nvmlShutdown()
+    return None
 
-
-# ============================================================
-# Provider 2: NVIDIA System Management Interface (nvidia-smi)
-# ============================================================
 
 def _query_via_nvidia_smi() -> Optional[GPUStats]:
-    """Fallback GPU stats using nvidia-smi CLI."""
-    if not shutil.which("nvidia-smi"):
+    """Fallback GPU stats using the NVIDIA System Management Interface."""
+    if not shutil.which("nvidia-smi"):  # pragma: no cover - depends on runtime
         return None
 
     try:
@@ -80,9 +60,7 @@ def _query_via_nvidia_smi() -> Optional[GPUStats]:
             timeout=2,
         )
         line = result.stdout.strip().splitlines()[0]
-        util_str, mem_used_str, mem_total_str, *name_parts = [
-            segment.strip() for segment in line.split(",")
-        ]
+        util_str, mem_used_str, mem_total_str, *name_parts = [segment.strip() for segment in line.split(",")]
         name = ", ".join(name_parts) if name_parts else "NVIDIA GPU"
         return GPUStats(
             name=name,
@@ -90,47 +68,41 @@ def _query_via_nvidia_smi() -> Optional[GPUStats]:
             memory_used_mb=float(mem_used_str),
             memory_total_mb=float(mem_total_str),
         )
-    except Exception:
+    except Exception:  # pragma: no cover - external command may not exist
         return None
 
-
-# ============================================================
-# Provider 3: PyTorch (fallback)
-# ============================================================
 
 def _query_via_torch() -> Optional[GPUStats]:
-    """Try to read GPU stats via PyTorch CUDA API."""
-    try:
-        import torch  # type: ignore
+    try:  # pragma: no cover - optional dependency
+        import torch
     except Exception:
         return None
 
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_available():  # pragma: no cover - depends on runtime
         return None
 
     try:
         device = torch.device("cuda:0")
         name = torch.cuda.get_device_name(device)
         with torch.cuda.device(device):
-            mem_used = torch.cuda.memory_allocated(device) / 1_048_576.0
-            mem_total = torch.cuda.get_device_properties(device).total_memory / 1_048_576.0
-        # Torch doesn’t expose real-time utilization, so set it to 0.0
+            memory_allocated = torch.cuda.memory_allocated(device) / 1_000_000.0
+            memory_total = torch.cuda.get_device_properties(device).total_memory / 1_000_000.0
+        # Torch does not expose real-time utilisation; estimate using stream occupancy if possible
+        utilization = 0.0
+        with contextlib.suppress(Exception):
+            utilization = torch.cuda.utilization(device)  # type: ignore[attr-defined]
         return GPUStats(
             name=name,
-            utilization=0.0,
-            memory_used_mb=float(mem_used),
-            memory_total_mb=float(mem_total),
+            utilization=float(utilization),
+            memory_used_mb=float(memory_allocated),
+            memory_total_mb=float(memory_total),
         )
-    except Exception:
+    except Exception:  # pragma: no cover - GPU metrics best effort
         return None
 
 
-# ============================================================
-# Public Interface
-# ============================================================
-
 def get_gpu_stats() -> GPUStats:
-    """Return the best available GPU telemetry (tries multiple backends)."""
+    """Return the best-effort GPU telemetry stats."""
     for provider in (_query_via_pynvml, _query_via_nvidia_smi, _query_via_torch):
         stats = provider()
         if stats is not None:
@@ -142,3 +114,4 @@ def gpu_available() -> bool:
     """Return True if a GPU device appears to be accessible."""
     stats = get_gpu_stats()
     return stats.name != "Unavailable"
+

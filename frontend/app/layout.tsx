@@ -3,7 +3,6 @@ import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { Inter, Share_Tech_Mono } from "next/font/google"
 import "../styles/globals.css"
-import { AudioToggle } from "@/components/AudioToggle"
 
 const AppShell = dynamic(() => import("@/components/AppShell"), {
   ssr: false,
@@ -47,9 +46,6 @@ export default function RootLayout({
         <link rel="preload" as="font" href="/fonts/JetBrainsMono.woff2" type="font/woff2" crossOrigin="anonymous" />
       </head>
       <body className={`${inter.variable} ${shareTechMono.variable} bg-bg text-text antialiased font-ui`}>
-        <div className="absolute right-6 top-4 z-50">
-          <AudioToggle />
-        </div>
         <div aria-live="polite" className="sr-only" />
         <AppShell>{children}</AppShell>
         <script defer src="/scripts/deferred.js"></script>
