@@ -376,7 +376,7 @@ RT-GIDS uses **XGBoost Gradient Boosting** classifiers for threat detection:
   - `src_port`
   - `dst_port`
   - `ip_version`
-- **Accuracy**: ~87.76%
+- **Accuracy**: ~96.92% (per `RealTime_IDS/models/metrics.json`)
 - **Training Time**: ~6 seconds
 - **Use Case**: Live network monitoring, low latency
 
