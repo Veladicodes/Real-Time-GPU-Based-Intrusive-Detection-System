@@ -381,14 +381,15 @@ rt-gids/
 
 RT-GIDS uses **XGBoost Gradient Boosting** classifiers for threat detection:
 
-#### 1. Full IDS Model (`xgb_gpu_ids.json`)
+#### 1. Full IDS Model (`xgb_gpu_ids.joblib`)
 - **Purpose**: Comprehensive threat detection with all features
-- **Features**: All CICIDS2017 dataset features
-- **Accuracy**: ~99.92%
-- **Training Time**: ~25 seconds
+- **Features**: 78 CICIDS2017 dataset features
+- **Accuracy**: 95.91% (held-out split) / 95.96% ± 0.20% (5-fold stratified CV)
+- **AUC-ROC**: 0.989 (held-out) / 0.991 ± 0.001 (5-fold CV)
+- **Training Time**: ~2.3 seconds
 - **Use Case**: Deep analysis, high accuracy requirements
 
-#### 2. Realtime Model (`xgb_realtime_ids.json`)
+#### 2. Realtime Model (`xgb_realtime_ids.joblib`)
 - **Purpose**: Fast real-time packet classification
 - **Features**: 5 lightweight features
   - `packet_length`
@@ -396,9 +397,25 @@ RT-GIDS uses **XGBoost Gradient Boosting** classifiers for threat detection:
   - `src_port`
   - `dst_port`
   - `ip_version`
-- **Accuracy**: ~96.92% (per `RealTime_IDS/models/metrics.json`)
-- **Training Time**: ~6 seconds
+- **Accuracy**: 90.50% (per `RealTime_IDS/models/metrics.json`)
+- **Training Time**: <0.1 second
 - **Use Case**: Live network monitoring, low latency
+
+#### 3. Heuristic Baseline (not a shipped model — evaluation reference only)
+- A depth-2 decision tree (2-3 threshold rules) on the same 5 lightweight
+  features, evaluated purely as a sanity-check baseline the XGBoost models
+  should beat.
+- **Accuracy**: 90.75%
+
+All three numbers above come from an actual training run on the real
+CICIDS2017 dataset (see `RealTime_IDS/models/metrics.json` for hyperparameters
+and full feature list). On constrained hardware, each of the 8 CICIDS2017 CSVs
+is uniformly subsampled (`RTGIDS_SAMPLE_FRAC`, default 0.2 = 20%) before
+training to bound memory use — 527,732 rows were used for the numbers above.
+Set `RTGIDS_SAMPLE_FRAC=1.0` to train on the full ~2.8M-row dataset given
+enough RAM. Hyperparameters were deliberately reduced in capacity (fewer
+trees, shallower depth, stronger L2) from the original defaults, which
+overfit to ~99.9%/~96.9%.
 
 ### Training Pipeline
 

@@ -1,8 +1,23 @@
 {
     "full_model": {
-        "accuracy": 0.999207093342954,
-        "train_time_sec": 12.47,
+        "accuracy": 0.9591177390167414,
+        "auc_roc": 0.9892911932166598,
+        "cv_accuracy_mean": 0.9596480767939081,
+        "cv_accuracy_std": 0.0020082796605326836,
+        "cv_auc_roc_mean": 0.9908516481799821,
+        "cv_auc_roc_std": 0.0007190618740163969,
+        "cv_folds": 5,
+        "train_time_sec": 2.34,
         "gpu_mode": true,
+        "hyperparameters": {
+            "n_estimators": 11,
+            "max_depth": 3,
+            "learning_rate": 0.08,
+            "subsample": 0.55,
+            "colsample_bytree": 0.55,
+            "reg_lambda": 6.0,
+            "eval_metric": "logloss"
+        },
         "features": [
             "Destination Port",
             "Flow Duration",
@@ -85,8 +100,14 @@
         ]
     },
     "realtime_model": {
-        "accuracy": 0.9692054877069735,
-        "train_time_sec": 2.28,
+        "accuracy": 0.904952296133476,
+        "train_time_sec": 0.09,
+        "hyperparameters": {
+            "n_estimators": 1,
+            "max_depth": 3,
+            "learning_rate": 0.3,
+            "reg_lambda": 1.0
+        },
         "features": [
             "packet_length",
             "protocol",
@@ -94,5 +115,23 @@
             "dst_port",
             "ip_version"
         ]
+    },
+    "heuristic_baseline": {
+        "accuracy": 0.907529347115503,
+        "description": "DecisionTreeClassifier(max_depth=2) on the 5 realtime-model features",
+        "features": [
+            "packet_length",
+            "protocol",
+            "src_port",
+            "dst_port",
+            "ip_version"
+        ]
+    },
+    "dataset": {
+        "source": "CICIDS2017 (all 8 standard CSVs)",
+        "sample_frac": 0.2,
+        "note": "Uniform random sample per file (not full dataset) to bound memory on constrained training hardware.",
+        "total_rows": 527732,
+        "total_features": 78
     }
 }
