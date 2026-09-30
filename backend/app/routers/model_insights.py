@@ -68,7 +68,7 @@ ws_router = APIRouter()
 # ---------------------------------------------------------------
 # Rate Limiting Setup
 # ---------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL, default_limits=[])
+limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL, default_limits=["100/minute"])
 
 
 def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
