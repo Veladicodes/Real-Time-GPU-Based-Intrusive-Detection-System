@@ -187,7 +187,7 @@ async def _compute_distribution(
     clipped = series.clip(lower=series.quantile(0.01), upper=series.quantile(0.99))
     bins = min(30, max(10, int(len(clipped) ** 0.5)))
     counts, bin_edges = np.histogram(clipped, bins=bins)
-    percentiles = {p: float(clipped.quantile(p / 100)) for p in (10, 25, 50, 75, 90)}
+    percentiles = {str(p): float(clipped.quantile(p / 100)) for p in (10, 25, 50, 75, 90)}
     statistics = {
         "mean": float(clipped.mean()),
         "std": float(clipped.std()),

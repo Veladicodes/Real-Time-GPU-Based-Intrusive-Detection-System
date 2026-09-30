@@ -223,7 +223,14 @@ async def shap_explain(payload: Dict[str, Any] = Body(..., description="Observat
     try:
         model, feature_names = _load_model_artifacts()
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "message": str(exc),
+                "detail": str(exc),
+                "fallback": _fallback_explanation(payload),
+            },
+        )
 
     if not feature_names:
         raise HTTPException(
