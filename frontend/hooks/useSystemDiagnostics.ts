@@ -28,6 +28,8 @@ export type SystemDiagnosticsResponse = {
     backend_latency?: number
     model_load_time?: number
     cache_hit_rate?: number
+    cpu_percent?: number
+    memory_percent?: number
   }
 }
 

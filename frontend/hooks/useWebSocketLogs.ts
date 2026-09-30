@@ -111,10 +111,10 @@ function normalizeMessage(payload: Record<string, unknown>): LogMessage {
 
 function isHeartbeat(payload: Record<string, unknown>, message: LogMessage): boolean {
   const raw =
-    (typeof payload.message === "string" && payload.message) ??
-    (typeof payload.threat === "string" && payload.threat) ??
-    message.message ??
-    message.threat ??
+    (typeof payload.message === "string" && payload.message) ||
+    (typeof payload.threat === "string" && payload.threat) ||
+    message.message ||
+    message.threat ||
     ""
   return raw.trim().toLowerCase().startsWith("rt-gids auto-pulse")
 }

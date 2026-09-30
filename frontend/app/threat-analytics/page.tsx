@@ -23,23 +23,28 @@ export default function ThreatAnalyticsPage() {
       {
         label: "Active Threats",
         value: stats.activeThreats,
-        severity: stats.activeThreats > 0 ? "critical" : "normal",
+        severity: stats.activeThreats > 0 ? ("critical" as const) : ("normal" as const),
       },
       {
         label: "Blocked Attacks",
         value: stats.blockedAttacks,
-        severity: stats.blockedAttacks > 0 ? "critical" : "normal",
+        severity: stats.blockedAttacks > 0 ? ("critical" as const) : ("normal" as const),
       },
       {
         label: "Suspicious IPs",
         value: stats.suspiciousIPs,
-        severity: stats.suspiciousIPs > 0 ? "warning" : "normal",
+        severity: stats.suspiciousIPs > 0 ? ("warning" as const) : ("normal" as const),
       },
       {
         label: "Avg Confidence",
         value: avgConfidencePercent,
         hint: `${avgConfidencePercent >= 80 ? "Stable" : avgConfidencePercent < 50 ? "Unstable" : "Caution"} • ${avgConfidencePercent}%`,
-        severity: avgConfidencePercent >= 80 ? "normal" : avgConfidencePercent < 50 ? "warning" : "critical",
+        severity:
+          avgConfidencePercent >= 80
+            ? ("normal" as const)
+            : avgConfidencePercent < 50
+              ? ("warning" as const)
+              : ("critical" as const),
       },
     ],
     [avgConfidencePercent, stats.activeThreats, stats.blockedAttacks, stats.suspiciousIPs],

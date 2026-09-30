@@ -92,8 +92,9 @@ export default function ModelInsightsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleGenerateSummary = async () => {
+  const handleGenerateSummary = async (): Promise<string | null> => {
     await generateSummary()
+    return null
   }
 
   const handleExplain = async (event: (typeof events)[number]) => {

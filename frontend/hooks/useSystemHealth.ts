@@ -4,9 +4,9 @@ import { useApi } from "@/hooks/useApi"
 
 export interface SystemHealthResponse {
   status: string
-  latency_ms?: number
-  backend_time?: string
-  service?: string
+  latency_ms?: number | null
+  backend_time?: string | null
+  service?: string | null
 }
 
 const mapStatus = (input: string | undefined) => {

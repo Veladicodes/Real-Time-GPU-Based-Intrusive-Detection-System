@@ -31,8 +31,8 @@ type InsightsApiResponse = {
   narrative?: string
   updated_at?: string
   features?: Array<{ name?: string; value?: number; importance?: number }>
-  importance?: Array<{ name?: string; importance?: number }>
-  feature_importance?: Array<{ name?: string; importance?: number }>
+  importance?: Array<{ name?: string; value?: number; importance?: number }>
+  feature_importance?: Array<{ name?: string; value?: number; importance?: number }>
   patterns?: Array<Partial<InsightPattern>>
   signals?: Array<Partial<InsightPattern>>
 }
