@@ -26,11 +26,12 @@ from app.services.telemetry_service import TelemetryService
 
 # Routers
 from app.routers import dashboard_metrics as dashboard
-from app.routers import feature_importance, logs, metrics, model, shap_explain, summary, threats
+from app.routers import auth, feature_importance, logs, metrics, model, shap_explain, summary, threats
 from app.routers.model_insights import (
     insights_ws_manager,
     limiter as model_insights_limiter,
     rate_limit_handler as model_insights_rate_limit_handler,
+    register_rate_limit_handler,
     router as model_insights_router,
     ws_router as model_insights_ws_router,
 )
@@ -82,6 +83,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SlowAPIMiddleware)
+# Without this, app.state.limiter is never set and SlowAPIMiddleware raises
+# AttributeError on every single request (this was previously dead code, never
+# called anywhere, meaning the whole backend 500'd under the rate-limit middleware).
+register_rate_limit_handler(app)
 app.state.rate_limiter = model_insights_limiter
 app.state.model_insights_ws_manager = insights_ws_manager
 app.add_exception_handler(RateLimitExceeded, model_insights_rate_limit_handler)
@@ -171,6 +176,7 @@ async def shutdown_event():
 # ----------------------------------------------------------
 
 # Core routers
+app.include_router(auth.router)
 app.include_router(logs.router)
 app.include_router(metrics.router, prefix="/api/metrics")
 app.include_router(model.router)
