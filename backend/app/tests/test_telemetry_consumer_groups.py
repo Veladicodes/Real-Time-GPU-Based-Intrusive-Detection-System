@@ -44,6 +44,9 @@ class FakeGroupRedis:
     async def xlen(self, key: str) -> int:
         return len(self._entries)
 
+    async def publish(self, channel: str, payload: str) -> int:
+        return 0
+
     async def xgroup_create(self, key: str, groupname: str, id: str = "$", mkstream: bool = False) -> bool:
         if groupname in self._groups:
             raise Exception("BUSYGROUP Consumer Group name already exists")

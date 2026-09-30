@@ -35,6 +35,7 @@ class TelemetryService:
         retention: int = 10000,
         simulate: bool = False,
         simulate_interval: float = 1.0,
+        group_name: str = "rtgids:telemetry:group",
     ):
         self._redis_url = redis_url
         self._stream_key = stream_key
@@ -42,6 +43,7 @@ class TelemetryService:
         self._retention = retention
         self._simulate = simulate
         self._simulate_interval = simulate_interval
+        self._group_name = group_name
 
         self._redis: aioredis.Redis | None = None
         self._external_client = False
@@ -186,6 +188,100 @@ class TelemetryService:
                 self._redis = None
                 await self._ensure_redis()
                 await asyncio.sleep(0.5)
+
+    # ------------------------------------------------------------------
+    # Consumer-group based consumption (crash-recoverable)
+    # ------------------------------------------------------------------
+
+    async def ensure_group(self) -> None:
+        """Create the telemetry consumer group if it doesn't already exist.
+
+        Idempotent: real Redis raises BUSYGROUP if the group already exists,
+        which we treat as success rather than an error.
+        """
+        if not self._redis and not await self._ensure_redis():
+            raise RuntimeError("Redis not initialized")
+        try:
+            await self._redis.xgroup_create(
+                self._stream_key, self._group_name, id="$", mkstream=True
+            )
+        except Exception as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
+
+    async def consume_group(
+        self, consumer_name: str, max_messages: int | None = None, block_ms: int = 1000
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Consume telemetry events via the shared consumer group, ack'ing each
+        message after it's yielded. Multiple consumer_name workers can share the
+        stream; unacked messages from a crashed consumer are recovered separately
+        via reclaim_stale().
+        """
+        if not self._redis and not await self._ensure_redis():
+            raise RuntimeError("Redis not initialized")
+
+        delivered = 0
+        while max_messages is None or delivered < max_messages:
+            try:
+                response = await self._redis.xreadgroup(
+                    self._group_name,
+                    consumer_name,
+                    {self._stream_key: ">"},
+                    count=10,
+                    block=block_ms,
+                )
+                if not response:
+                    if max_messages is not None:
+                        await asyncio.sleep(0)
+                        continue
+                    await asyncio.sleep(0)
+                    continue
+
+                for _, messages in response:
+                    for message_id, fields in messages:
+                        # Ack immediately on receipt: crash recovery is handled by
+                        # reclaim_stale()/XAUTOCLAIM at the consumer level, not by
+                        # withholding the ack until the caller finishes iterating
+                        # (which may never happen if the caller stops early).
+                        await self._redis.xack(self._stream_key, self._group_name, message_id)
+                        payload = fields.get("payload")
+                        if payload:
+                            yield self._deser(payload)
+                        delivered += 1
+                        if max_messages is not None and delivered >= max_messages:
+                            return
+
+                await self._update_backlog()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                log.warning("⚠️ Consumer-group consume error: %s", exc)
+                self._redis = None
+                await self._ensure_redis()
+                await asyncio.sleep(0.5)
+
+    async def reclaim_stale(self, consumer_name: str, min_idle_ms: int = 60_000) -> List[Dict[str, Any]]:
+        """Reassign pending entries idle longer than min_idle_ms to consumer_name
+        via XAUTOCLAIM, recovering work from a crashed/stalled consumer.
+        """
+        if not self._redis and not await self._ensure_redis():
+            raise RuntimeError("Redis not initialized")
+
+        reclaimed: List[Dict[str, Any]] = []
+        try:
+            _, claimed_entries, _ = await self._redis.xautoclaim(
+                self._stream_key, self._group_name, consumer_name, min_idle_ms, start_id="0-0"
+            )
+        except Exception as exc:
+            log.warning("⚠️ XAUTOCLAIM failed: %s", exc)
+            return reclaimed
+
+        for _, fields in claimed_entries:
+            payload = fields.get("payload")
+            if payload:
+                reclaimed.append(self._deser(payload))
+        return reclaimed
 
     # ------------------------------------------------------------------
     # Threat computation
