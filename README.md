@@ -330,9 +330,10 @@ rt-gids/
 │   │   │   ├── model_service.py      # Model management
 │   │   │   └── ...
 │   │   ├── utils/             # Utilities
-│   │   │   ├── local_runtime.py  # FakeRedis, SIM_MODE
+│   │   │   ├── redis_url.py      # ACL-aware Redis connection URL builder
 │   │   │   └── model_loader.py   # Model loading
 │   │   └── schemas/           # Pydantic models
+│   ├── redis/users.acl        # Redis ACL definitions (scoped rtgids-app user)
 │   ├── requirements.txt       # Python dependencies
 │   └── models/                # ML model storage
 │
@@ -355,17 +356,20 @@ rt-gids/
 │   │   └── api.ts             # API client
 │   └── package.json           # Node dependencies
 │
-├── RealTime_IDS/              # ML training pipeline
+├── RealTime_IDS/              # ML training pipeline (standalone; not called by backend/)
 │   ├── scripts/
 │   │   ├── preprocess_gpu.py  # Data preprocessing
-│   │   └── train_gpu.py       # Model training
+│   │   ├── train_gpu.py       # Model training
+│   │   └── realtime_gpu_ids.py  # Live packet sniffing + auto-firewall-blocking demo
 │   ├── models/                # Trained models
-│   │   ├── xgb_gpu_ids.json   # Full model
-│   │   └── xgb_realtime_ids.json  # Realtime model
+│   │   ├── xgb_gpu_ids.joblib      # Full model
+│   │   └── xgb_realtime_ids.joblib # Realtime model
 │   └── data/                  # Processed datasets
 │
-├── attack_seeder.py           # Synthetic attack generator
-├── run.py                     # Unified launcher
+├── k8s/                        # Kubernetes manifests (Deployment/Service/HPA 2-10 pods)
+├── .github/workflows/ci.yml    # GitHub Actions: backend pytest, frontend build, Docker build
+├── attack.py                   # Synthetic attack generator (pushes to Redis directly)
+├── run_rtgids.py                # Unified launcher (docker compose + frontend dev server)
 └── README.md                  # This file
 ```
 
@@ -558,13 +562,20 @@ Visit http://localhost:8000/docs for Swagger UI with:
 #### Backend
 
 ```bash
-# Simulation mode (default: true)
-SIM_MODE=true
+# Redis connection (plain, or ACL-scoped — see Security section below)
+REDIS_URL=redis://localhost:6379/0
+RTGIDS_REDIS_USER=rtgids-app        # optional, enables ACL-authenticated connection
+RTGIDS_REDIS_PASSWORD=...           # required if RTGIDS_REDIS_USER is set
+
+# Auth
+RTGIDS_API_TOKEN=dev-token-abc      # shared secret exchanged for a JWT via /api/auth/token
+RTGIDS_JWT_SECRET=change-me-in-prod
+RTGIDS_JWT_ALG=HS256
 
 # Model directory
-RTGIDS_MODELS_DIR=D:/CN/RealTime_IDS/models
+RTGIDS_MODELS_DIR=/data/models      # e.g. ../RealTime_IDS/models for local dev
 
-# OpenAI API (optional)
+# OpenAI API (optional, for narrative summaries)
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
 
@@ -580,20 +591,39 @@ RTGIDS_BATCH_TIMEOUT=0.05
 NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
 ```
 
-### SIM_MODE Explained
+---
 
-When `SIM_MODE=true` (default):
-- Uses `FakeRedis` (in-memory state)
-- No external Redis required
-- CPU-only ML inference
-- Tokenless WebSocket connections
-- Perfect for local development
+## 🔐 Security
 
-When `SIM_MODE=false`:
-- Requires real Redis instance
-- GPU inference if available
-- Token-based WebSocket auth
-- Production-ready mode
+### JWT issuance (24h expiry)
+
+Exchange the shared `RTGIDS_API_TOKEN` for a signed, short-lived JWT:
+
+```bash
+curl -X POST http://localhost:8000/api/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"api_token": "dev-token-abc"}'
+# => {"access_token": "...", "token_type": "bearer", "expires_in": 86400}
+```
+
+Tokens are HS256-signed and expire exactly 24 hours (`86400s`) after issuance;
+`RTGIDS_JWT_SECRET` must be overridden from its `change-me-in-prod` default for
+anything beyond local development. Any JWT missing an `exp` claim is rejected
+outright, so a token can never grant indefinite access.
+
+### Redis ACLs
+
+`docker-compose.yml` and `k8s/redis-acl-configmap.yaml` both start Redis with
+`--aclfile users.acl`, disabling the unrestricted `default` user and defining a
+scoped `rtgids-app` user limited to the exact commands/key patterns the backend
+uses (stream ops, get/set, pub/sub — no `FLUSHALL`, `CONFIG`, or `ACL SETUSER`).
+Set `RTGIDS_REDIS_USER`/`RTGIDS_REDIS_PASSWORD` to match the ACL file's
+credentials; override the placeholder password in both places before deploying.
+
+### Rate limiting
+
+All routes are protected by a global `100/minute` limit (`slowapi`), with two
+model-insights routes additionally capped at `1/10 seconds`.
 
 ---
 
@@ -602,8 +632,13 @@ When `SIM_MODE=false`:
 ### Ingest Network Event
 
 ```bash
-curl -X POST http://localhost:8000/ingest \
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/token \
   -H "Content-Type: application/json" \
+  -d '{"api_token": "dev-token-abc"}' | jq -r .access_token)
+
+curl -X POST http://localhost:8000/api/logs/ingest \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "timestamp": "2024-01-15T10:30:00Z",
     "src_ip": "192.168.1.100",
