@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtgids-redis
+  namespace: rtgids
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rtgids-redis
+  template:
+    metadata:
+      labels:
+        app: rtgids-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          command: ["redis-server", "--aclfile", "/etc/redis/users.acl"]
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: acl-config
+              mountPath: /etc/redis
+            - name: redis-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: acl-config
+          configMap:
+            name: rtgids-redis-acl
+        - name: redis-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtgids-redis
+  namespace: rtgids
+spec:
+  selector:
+    app: rtgids-redis
+  ports:
+    - port: 6379
+      targetPort: 6379

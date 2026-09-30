@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rtgids-redis-acl
+  namespace: rtgids
+data:
+  users.acl: |
+    user default off
+    user rtgids-app on >CHANGE_ME_IN_PRODUCTION \
+      +ping +info +get +set \
+      +xadd +xlen +xrevrange +xread +xreadgroup +xack +xautoclaim +xgroup \
+      +publish +subscribe +psubscribe \
+      ~rtgids:* ~threat_index ~attack_count ~system:*

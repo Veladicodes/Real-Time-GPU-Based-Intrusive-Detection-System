@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtgids-backend
+  namespace: rtgids
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rtgids-backend
+  template:
+    metadata:
+      labels:
+        app: rtgids-backend
+    spec:
+      containers:
+        - name: backend
+          image: rtgids-backend:latest  # built from Dockerfile (cpu-runtime or gpu-runtime target); override per environment
+          ports:
+            - containerPort: 8000
+          env:
+            - name: REDIS_URL
+              value: "redis://rtgids-redis:6379/0"
+            - name: RTGIDS_REDIS_USER
+              value: "rtgids-app"
+            - name: RTGIDS_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rtgids-secrets
+                  key: redis-password
+            - name: RTGIDS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: rtgids-secrets
+                  key: api-token
+            - name: RTGIDS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rtgids-secrets
+                  key: jwt-secret
+            - name: RTGIDS_MODELS_DIR
+              value: "/data/models"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtgids-backend
+  namespace: rtgids
+spec:
+  selector:
+    app: rtgids-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rtgids-secrets
+  namespace: rtgids
+type: Opaque
+stringData:
+  # Placeholders only — override with real values at deploy time (kubectl create secret,
+  # a sealed-secrets/external-secrets pipeline, etc.). Never commit real secrets here.
+  redis-password: "CHANGE_ME_IN_PRODUCTION"
+  api-token: "CHANGE_ME_IN_PRODUCTION"
+  jwt-secret: "CHANGE_ME_IN_PRODUCTION"
