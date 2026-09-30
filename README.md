@@ -8,10 +8,11 @@
 ![XGBoost](https://img.shields.io/badge/XGBoost-2.1.0-orange.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![CI](https://github.com/Veladicodes/Real-Time-GPU-Based-Intrusive-Detection-System/actions/workflows/ci.yml/badge.svg)](https://github.com/Veladicodes/Real-Time-GPU-Based-Intrusive-Detection-System/actions/workflows/ci.yml)
 
 **A production-ready, real-time network intrusion detection system powered by XGBoost machine learning, featuring a modern Next.js dashboard and comprehensive threat analytics.**
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [Documentation](#-documentation) • [Contributing](#-contributing)
+[Features](#-features) • [Quick Start](#-quick-start) • [Architecture](#-architecture) • [API](#-api-documentation) • [Contributing](#-contributing)
 
 </div>
 
@@ -90,33 +91,23 @@
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         RT-GIDS Architecture                      │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Client
+        FE["Frontend<br/>Next.js dashboard"]
+    end
+    subgraph Server
+        BE["Backend<br/>FastAPI"]
+        TS["Telemetry service"]
+    end
+    ML["ML models<br/>XGBoost"]
+    R[("FakeRedis (in-memory)<br/>or real Redis")]
 
-┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-│   Frontend   │◄───────►│   Backend    │◄───────►│  ML Models   │
-│  (Next.js)   │  HTTP   │  (FastAPI)   │  Load   │  (XGBoost)   │
-│              │  + WS   │              │         │              │
-└──────────────┘         └──────────────┘         └──────────────┘
-      │                         │                         │
-      │                         │                         │
-      ▼                         ▼                         ▼
-┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-│   Dashboard  │         │  Telemetry   │         │  Threat      │
-│  Components  │         │   Service    │         │  Metrics     │
-└──────────────┘         └──────────────┘         └──────────────┘
-      │                         │                         │
-      │                         │                         │
-      └─────────────────────────┴─────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  FakeRedis       │
-                    │  (In-Memory)     │
-                    │  or Real Redis   │
-                    └─────────────────┘
+    FE <-->|"HTTP + WebSocket"| BE
+    BE -->|"load and infer"| ML
+    BE --> TS
+    TS --> R
+    ML -->|"threat metrics"| TS
 ```
 
 ### Component Flow
@@ -188,8 +179,8 @@
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/rt-gids.git
-cd rt-gids
+git clone https://github.com/Veladicodes/Real-Time-GPU-Based-Intrusive-Detection-System.git
+cd Real-Time-GPU-Based-Intrusive-Detection-System
 ```
 
 ### 2. Backend Setup
@@ -824,15 +815,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/rt-gids/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/rt-gids/discussions)
-- **Email**: support@rt-gids.example.com
+- **Issues**: [GitHub Issues](https://github.com/Veladicodes/Real-Time-GPU-Based-Intrusive-Detection-System/issues)
+- **Author**: [Adithya A on LinkedIn](https://www.linkedin.com/in/adithya-a-ml/)
+- **Email**: [10403adithya@gmail.com](mailto:10403adithya@gmail.com)
 
 ---
 
 <div align="center">
 
-**Made with ❤️ by the RT-GIDS Team**
+**Built by [Adithya A](https://github.com/Veladicodes)**
 
 ⭐ Star this repo if you find it helpful!
 
