@@ -16,6 +16,7 @@ except ImportError:
 
 # Observability & metrics
 from app.observability import REQUESTS, metrics_response
+from app.utils.redis_url import build_redis_url
 
 # Core services
 from app.services.ml_service import MLService
@@ -48,9 +49,7 @@ app = FastAPI(title="RT-GIDS Tier-0 Backend", version="1.0")
 telemetry_logger = logging.getLogger("rtgids.telemetry")
 
 # Environment variables
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    REDIS_URL = "redis://host.docker.internal:6379/0" if os.path.exists("/.dockerenv") else "redis://localhost:6379/0"
+REDIS_URL = build_redis_url()
 MODELS_DIR = os.getenv("RTGIDS_MODELS_DIR", "/data/models")
 
 # Initialize core services

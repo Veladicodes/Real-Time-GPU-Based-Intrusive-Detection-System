@@ -1,0 +1,22 @@
+# RT-GIDS Redis ACL definitions.
+#
+# Disables the default user (no more unauthenticated/unrestricted access) and
+# defines a scoped "rtgids-app" user limited to the commands and key patterns
+# the backend actually uses, so a compromised backend process cannot run
+# arbitrary Redis admin commands (FLUSHALL, CONFIG SET, ACL SETUSER, etc.).
+#
+# Command categories/keys granted match what telemetry_service.py,
+# system_diagnostics.py, and model_insights.py actually call:
+#   xadd, xlen, xrevrange, xread, xreadgroup, xack, xautoclaim, xgroup,
+#   get, set, publish, subscribe/psubscribe, ping, info.
+#
+# CHANGE_ME_IN_PRODUCTION is a placeholder, not a real credential — override
+# via the RTGIDS_REDIS_PASSWORD env var (see docker-compose.yml) at deploy time.
+
+user default off
+
+user rtgids-app on >CHANGE_ME_IN_PRODUCTION \
+  +ping +info +get +set \
+  +xadd +xlen +xrevrange +xread +xreadgroup +xack +xautoclaim +xgroup \
+  +publish +subscribe +psubscribe \
+  ~rtgids:* ~threat_index ~attack_count ~system:*

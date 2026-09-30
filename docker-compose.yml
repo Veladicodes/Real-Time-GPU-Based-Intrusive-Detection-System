@@ -9,6 +9,8 @@ services:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://rtgids-redis:6379/0
+      - RTGIDS_REDIS_USER=rtgids-app
+      - RTGIDS_REDIS_PASSWORD=${RTGIDS_REDIS_PASSWORD:-CHANGE_ME_IN_PRODUCTION}
       - RTGIDS_MODELS_DIR=/data/models
       - RTGIDS_API_TOKEN=dev-token-abc
       - RTGIDS_JWT_SECRET=supersecret
@@ -29,7 +31,9 @@ services:
     image: redis:7
     container_name: rtgids-redis
     restart: always
+    command: ["redis-server", "--aclfile", "/etc/redis/users.acl"]
     ports:
       - "6379:6379"
     volumes:
       - ./redis-data/redis:/data
+      - ./backend/redis/users.acl:/etc/redis/users.acl:ro

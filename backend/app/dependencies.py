@@ -9,13 +9,16 @@ try:
 except ImportError:  # pragma: no cover - fallback for older redis versions
     import aioredis  # type: ignore
 
+from app.utils.redis_url import build_redis_url
+
 
 @lru_cache
 def get_redis_url() -> str:
     """
-    Return the Redis connection URL from environment variables, defaulting to localhost.
+    Return the Redis connection URL, authenticating as a scoped ACL user when
+    RTGIDS_REDIS_USER/RTGIDS_REDIS_PASSWORD are configured.
     """
-    return os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    return build_redis_url()
 
 
 async def get_redis() -> AsyncIterator[aioredis.Redis]:
