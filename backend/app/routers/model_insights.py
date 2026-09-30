@@ -473,9 +473,9 @@ async def _handle_summary_job(
         top = feature_importance.features[: request_payload.top_k_features]
         signals = [
             {
-                "feature": item["name"],
-                "signal": "rising" if item["normalized_score"] > 0.65 else "elevated",
-                "score": item["normalized_score"],
+                "feature": item.name,
+                "signal": "rising" if item.normalized_score > 0.65 else "elevated",
+                "score": item.normalized_score,
             }
             for item in top
         ]
