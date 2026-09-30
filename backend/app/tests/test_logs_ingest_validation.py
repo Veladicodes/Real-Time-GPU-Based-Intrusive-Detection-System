@@ -14,12 +14,33 @@ from httpx import ASGITransport, AsyncClient
 
 import app.security as security_module
 from app.main import app
+from app.services.telemetry_service import TelemetryService
+
+
+class _FakeTelemetry(TelemetryService):
+    """No-op telemetry stub so ingest tests don't block on real Redis connects.
+
+    Subclasses TelemetryService (rather than duck-typing) because logs.py
+    enforces isinstance(telemetry, TelemetryService) before accepting it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("redis://unused")
+
+    async def ingest(self, event: dict) -> None:
+        return None
+
+    async def update_threat_index(self, event: dict) -> float:
+        return 0.0
 
 
 @pytest.fixture(autouse=True)
 def _known_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(security_module, "API_TOKEN", "test-api-token")
     monkeypatch.setenv("RTGIDS_API_TOKEN", "test-api-token")
+    monkeypatch.setattr(app.state, "telemetry_service", _FakeTelemetry(), raising=False)
+    monkeypatch.setattr(app.state, "telemetry", _FakeTelemetry(), raising=False)
+    monkeypatch.setattr(app.state, "maintenance_mode", False, raising=False)
 
 
 @pytest.fixture

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+import ipaddress
+
 import orjson
 from fastapi import (
     APIRouter,
@@ -14,6 +16,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.security import decode_token
 from app.utils.diagnostics_utils import fetch_maintenance
@@ -22,13 +25,44 @@ from app.services.telemetry_service import TelemetryService
 router = APIRouter(prefix="/api/logs", tags=["Logs"])
 
 
+class TelemetryEventIn(BaseModel):
+    """Validated shape for an incoming telemetry event.
+
+    extra="allow" so producers (attack.py, run_rtgids.py heartbeat, etc.) can
+    keep attaching additional descriptive fields (label, is_attack, bytes_in/
+    out, timestamp) without a schema change; only the fields we actually parse
+    into network semantics are range/format checked here.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    src_ip: str | None = None
+    dst_ip: str | None = None
+    src_port: int | None = Field(default=None, ge=0, le=65535)
+    dst_port: int | None = Field(default=None, ge=0, le=65535)
+    proto: str | None = Field(default=None, max_length=32)
+    severity: str | None = Field(default=None, max_length=32)
+    message: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("src_ip", "dst_ip")
+    @classmethod
+    def _validate_ip(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise ValueError(f"invalid IP address: {value!r}") from exc
+        return value
+
+
 # ---------------------------
 # Ingest Endpoint (POST /api/logs/ingest)
 # ---------------------------
 @router.post("/ingest", status_code=status.HTTP_200_OK)
 async def ingest_log(
     request: Request,
-    payload: dict,
+    payload: TelemetryEventIn,
     authorization: str | None = Header(None),
 ):
     """
@@ -66,13 +100,15 @@ async def ingest_log(
     if maintenance:
         raise HTTPException(status_code=503, detail="Maintenance Mode Active")
 
-    message_text = str(payload.get("message") or "").strip()
+    event = payload.model_dump(exclude_none=True)
+
+    message_text = str(event.get("message") or "").strip()
     if message_text.lower().startswith("rt-gids auto-pulse"):
         # Ignore internal heartbeat noise to keep analyst feed clean.
         return {"status": "ignored"}
 
-    await telemetry.ingest(payload)
-    await telemetry.update_threat_index(payload)
+    await telemetry.ingest(event)
+    await telemetry.update_threat_index(event)
     return {"status": "ok"}
 
 
