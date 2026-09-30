@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU-only backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          grep -v -E "^torch|^torchvision|^torchaudio|extra-index-url" requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install pytest pytest-asyncio
+
+      - name: Run backend test suite
+        env:
+          RTGIDS_MODELS_DIR: ${{ github.workspace }}/RealTime_IDS/models
+          PYTHONIOENCODING: utf-8
+        run: pytest app/tests/ -q --asyncio-mode=auto
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@latest --activate
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Build
+        run: pnpm run build
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [backend-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CPU runtime image
+        run: docker build --target cpu-runtime -t rtgids-backend:ci .

@@ -114,7 +114,7 @@ async def client(
     fake_background: pd.DataFrame,
     fake_shap: None,
 ) -> AsyncClient:
-    transport = ASGITransport(app=app, lifespan="off")
+    transport = ASGITransport(app=app)
     headers = {"Authorization": "Bearer api::dev-token-abc"}
     async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as async_client:
         yield async_client

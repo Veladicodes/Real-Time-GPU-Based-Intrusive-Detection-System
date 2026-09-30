@@ -135,7 +135,7 @@ async def client(fake_redis: FakeRedis) -> AsyncClient:
     app.state.ml_service = FakeMLService()
     app.state.model_service = None
 
-    transport = ASGITransport(app=app, lifespan="off")
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as async_client:
         yield async_client
 

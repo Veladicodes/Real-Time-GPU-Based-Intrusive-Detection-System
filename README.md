@@ -248,10 +248,14 @@ Pre-trained models are included in `RealTime_IDS/models/`.
 
 ```bash
 # From project root
-python run.py
+python run_rtgids.py
 ```
 
-This starts both backend (port 8000) and frontend (port 3000) automatically.
+This runs `docker compose up --build` (backend + Redis), waits for `/api/health`,
+then starts the Next.js dev server and a background health monitor. Requires
+Docker; GPU device reservation in `docker-compose.yml` requires an NVIDIA GPU +
+nvidia-container-toolkit — on a machine without one, remove the `deploy.resources`
+block or build the `cpu-runtime` Dockerfile target instead.
 
 ### Option 2: Manual Start
 
@@ -259,16 +263,28 @@ This starts both backend (port 8000) and frontend (port 3000) automatically.
 
 ```bash
 cd backend
+python -m venv .venv
 .venv\Scripts\activate  # Windows
 # or
 source .venv/bin/activate  # Linux/macOS
 
-set SIM_MODE=true  # Windows
-# or
-export SIM_MODE=true  # Linux/macOS
+pip install -r requirements.txt
+# On a machine without an NVIDIA GPU, install CPU-only torch instead of the
+# large CUDA wheel pinned in requirements.txt:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-uvicorn backend.app.main:app --reload --port 8000
+set RTGIDS_MODELS_DIR=..\RealTime_IDS\models  # Windows
+# or
+export RTGIDS_MODELS_DIR=../RealTime_IDS/models  # Linux/macOS
+
+uvicorn app.main:app --reload --port 8000
 ```
+
+A local Redis instance (default `redis://localhost:6379/0`) must be reachable;
+override with `REDIS_URL`. Auth defaults to `RTGIDS_API_TOKEN=dev-token-abc` and
+`RTGIDS_JWT_SECRET=change-me-in-prod` if unset — override both for anything
+beyond local development. See [Security](#-security) for JWT issuance and Redis
+ACLs.
 
 #### Start Frontend
 
@@ -283,7 +299,7 @@ pnpm dev
 
 ```bash
 # From project root
-python attack_seeder.py --count 200
+python attack.py
 ```
 
 ### Access the Dashboard
