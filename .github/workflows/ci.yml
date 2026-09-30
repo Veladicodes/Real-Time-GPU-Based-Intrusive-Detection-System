@@ -31,7 +31,7 @@ jobs:
         env:
           RTGIDS_MODELS_DIR: ${{ github.workspace }}/RealTime_IDS/models
           PYTHONIOENCODING: utf-8
-        run: pytest app/tests/ -q --asyncio-mode=auto
+        run: python -m pytest app/tests/ -q --asyncio-mode=auto
 
   frontend-build:
     runs-on: ubuntu-latest
